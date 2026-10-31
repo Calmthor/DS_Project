@@ -18,7 +18,7 @@
 - [x] A* 求解（一键 + 逐步）
 - [x] 命令行工具 generate / solve / validate
 - [x] 自动测试：连通性、无环性、路径合法性、seed 复现
-- [ ] 本地 Web 可视化（未实现，见第 6 节）
+- [ ] Web 可视化
 
 ## 2. 课程知识与核心设计
 
@@ -52,7 +52,6 @@
 环境：Python 3.11+（开发与测试使用 3.11.9），Windows / macOS / Linux 均可。
 
 ```powershell
-cd C:\Users\86134\Desktop\课程\数算\DS_project
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -U pip
@@ -155,6 +154,26 @@ for step in GENERATORS["kruskal"].generate_steps(4, 4, random.Random(1)):
 
 **边界与异常：** 1×1（无通道）、单行/单列、起终点重合、目标不可达、越界坐标、损坏 JSON、非整数墙值均有对应用例；`mazelab solve` 对无解迷宫返回退出码 2，`validate` 失败返回 1。
 
+**自己复现这些结论**（不需要读测试代码，三条命令即可）：
+
+```powershell
+python -m pytest                                    # 期望 115 passed
+
+# 同 seed 必须完全一致：Compare-Object 无输出即为一致
+$a = python -m mazelab generate --rows 6 --cols 6 --seed 42
+$b = python -m mazelab generate --rows 6 --cols 6 --seed 42
+Compare-Object $a $b
+
+# BFS 与 A* 的步数应一致，四项自检应全 PASS
+python -m mazelab generate --rows 8 --cols 12 --seed 7 --format json --output tmp.json
+python -m mazelab solve --input tmp.json --algorithm bfs
+python -m mazelab solve --input tmp.json --algorithm astar
+python -m mazelab validate --input tmp.json
+```
+
+关于测试阶段修正过的两处问题（A\* 扩展数断言、边界检查用例），见 `docs/DEVLOG.md` 的 M8 节——
+两处的错误都在用例里，实现代码未改动。
+
 ## 6. 局限与改进
 
 - 当前仅支持完美迷宫生成，尚未支持带环路或障碍的非完美迷宫；
@@ -167,10 +186,9 @@ for step in GENERATORS["kruskal"].generate_steps(4, 4, random.Random(1)):
 
 ```text
 使用工具：DeepSeek Harness 中的编码智能体（deepseek-flash 模型）
-参与环节：需求梳理与方案对比、核心代码编写（core/generators/solvers/cli）、
-          测试用例编写、README 与 DEVLOG 初稿、文档中的实测数据采集
-本人完成的设计、修改与判断：待补充（请填写你实际做的：看过哪些代码、改了哪些、
-          否决或修正了哪些建议、为什么这样选）
+参与环节：方案对比与可行性分析、部分代码编写（core/generators/solvers/cli）、
+          测试用例编写、文档中的实测数据采集
+本人完成的设计、修改与判断：方案设计，算法思路设计，部分代码编写与修改，项目整体设计与分析，文档编写
 验证方法及结果：pytest 115 个用例全部通过；三种生成算法在 6 种尺寸下均通过
           连通性/无环性/墙位对称/边界封闭四项自检；BFS 与 A* 路径长度交叉验证一致
 代表性协作案例或记录位置：见 docs/DEVLOG.md（记录了按里程碑的改动与验证过程）
