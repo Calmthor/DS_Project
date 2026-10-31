@@ -24,3 +24,12 @@ Thumbs.db
 dist/
 build/
 *.log
+
+# pip 构建残留
+pip-ephem-wheel-cache-*/
+pip-metadata-*/
+pip-modern-metadata-*/
+pip-unpack-*/
+
+# pytest 临时目录（tmp_path 基准目录）
+pytest-of-*/
