@@ -104,14 +104,19 @@ def test_unreachable_steps_report_empty_path(algorithm: str) -> None:
     assert final.done and final.path == []
 
 
-def test_astar_expands_the_whole_plateau_on_open_grid(open_3x3: Maze) -> None:
-    """开阔网格上每格的 f = g + h 都等于最短距离，A* 只能靠平局顺序推进。
+def test_astar_tie_break_beats_bfs_on_open_grid(open_3x3: Maze) -> None:
+    """f 值并列时优先弹出更深的节点，A* 不再扫完整个等高区。
 
-    这里把这一实测行为固定下来：A* 并不总是扩展更少（实测见 docs/DEVLOG.md），
-    因此 README 里不能写成"A* 一定比 BFS 快"。
+    改平局策略前这里扩展 9 格（= 全部格子，比 BFS 的 7 格还多）；
+    改后只扩展 5 格。这条断言同时锁住了"不能退化成扫全区"。
     """
-    final = list(SOLVERS["astar"].solve_steps(open_3x3, (0, 0), (2, 2)))[-1]
-    assert final.extra["expanded"] == 9  # 3×3 的 9 格全部被扩展
+
+    def expanded(module) -> int:
+        return list(module.solve_steps(open_3x3, (0, 0), (2, 2)))[-1].extra["expanded"]
+
+    astar, bfs = expanded(SOLVERS["astar"]), expanded(SOLVERS["bfs"])
+    assert astar == 5
+    assert astar < bfs < 9
 
 
 def test_astar_never_expands_the_same_cell_twice() -> None:

@@ -4,16 +4,20 @@
 距离下界。曼哈顿距离在四方向移动、每步代价 1 的无权网格上可采纳且一致，
 因此 A* 找到的路径与 BFS 一样短，但扩展的格子通常更少。
 
-若把堆里的格子记成 (f, 序号, 坐标)，同一格可能被 push 多次；
+平局策略：f 相同的格子很多（开阔区域里整片格子的 f 都可能相等），
+此时优先弹出 g 更大的那个，也就是离终点更近的格子。这不会影响正确性
+（f 值相同说明都在同一条最优代价线上），但能让搜索直接往终点推进，
+而不是按入堆顺序把整片等高区扫完。实测开阔 10×10 的扩展格数由 100 降到 19。
+
+若把堆里的格子记成 (f, -g, 坐标)，同一格可能被 push 多次；
 弹出时用 ``closed`` 集合跳过过期条目，保证每格只扩展一次。
 
-课堂对应：优先队列、启发式搜索、可采纳性。
+课堂对应：优先队列、启发式搜索、可采纳性、平局打破。
 """
 
 from __future__ import annotations
 
 import heapq
-import itertools
 from collections.abc import Iterator
 
 from mazelab.core.maze import Maze
@@ -45,8 +49,8 @@ def solve_steps(maze: Maze, start: Point, goal: Point) -> Iterator[StepSnapshot]
     g_score: dict[Point, int] = {start: 0}
     parent: dict[Point, Point | None] = {start: None}
     closed: set[Point] = set()
-    tie = itertools.count()  # f 相同时的稳定次序
-    heap: list[tuple[int, int, Point]] = [(manhattan(start, goal), next(tie), start)]
+    # 堆元素 (f, -g, 坐标)：f 相同时 -g 更小（即 g 更大）的先出，优先走更深的节点
+    heap: list[tuple[int, int, Point]] = [(manhattan(start, goal), 0, start)]
 
     yield StepSnapshot(
         action=f"起点 {start} 入堆，h={manhattan(start, goal)}",
@@ -85,7 +89,7 @@ def solve_steps(maze: Maze, start: Point, goal: Point) -> Iterator[StepSnapshot]
             if tentative < g_score.get(nb, 1 << 30):
                 g_score[nb] = tentative
                 parent[nb] = cur
-                heapq.heappush(heap, (tentative + manhattan(nb, goal), next(tie), nb))
+                heapq.heappush(heap, (tentative + manhattan(nb, goal), -tentative, nb))
 
         yield StepSnapshot(
             action=f"扩展 {cur}（g={g_score[cur]}, f={f}）",
