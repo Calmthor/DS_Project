@@ -58,6 +58,12 @@ python -m pip install -U pip
 pip install -e ".[dev]"
 ```
 
+macOS / Linux 下激活命令不同，把第二行换成：
+
+```bash
+source .venv/bin/activate
+```
+
 若网络访问官方源较慢，可临时换镜像：
 
 ```powershell
