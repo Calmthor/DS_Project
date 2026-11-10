@@ -6,6 +6,9 @@
 也就是完美迷宫。
 
 课堂对应：并查集、最小生成树、按权重排序的贪心选择。
+
+性能说明：``generate()`` 用 ``capture=False`` 跳过快照构造，
+每条边只做一次并查集操作，整体 O(E·α(E))。
 """
 
 from __future__ import annotations
@@ -35,8 +38,13 @@ def generate_steps(
     cols: int,
     rng: random.Random,
     maze: Maze | None = None,
+    *,
+    capture: bool = True,
 ) -> Iterator[StepSnapshot]:
-    """逐步生成迷宫：按随机顺序考察每条候选边，用并查集决定是否打通。"""
+    """逐步生成迷宫：按随机顺序考察每条候选边，用并查集决定是否打通。
+
+    ``capture=False`` 时不产出快照，只推进算法状态。
+    """
     if maze is None:
         maze = Maze(rows, cols)
     elif (maze.rows, maze.cols) != (rows, cols):
@@ -50,60 +58,64 @@ def generate_steps(
     dsu = DisjointSet(maze.size)
     accepted = rejected = 0
 
-    yield StepSnapshot(
-        action=f"打乱 {len(edges)} 条候选边",
-        structure=[],
-        extra={"edges": len(edges), "components": dsu.components, "carve": None},
-    )
+    if capture:
+        yield StepSnapshot(
+            action=f"打乱 {len(edges)} 条候选边",
+            structure=[],
+            extra={"edges": len(edges), "components": dsu.components, "carve": None},
+        )
 
     for a, b in edges:
         if dsu.union(index(a), index(b)):
             maze.carve(a, b)
             accepted += 1
-            yield StepSnapshot(
-                action=f"接通 {a} — {b}",
-                current=b,
-                structure=[],
-                extra={
-                    "accepted": accepted,
-                    "rejected": rejected,
-                    "components": dsu.components,
-                    "carve": (a, b),
-                },
-            )
+            if capture:
+                yield StepSnapshot(
+                    action=f"接通 {a} — {b}",
+                    current=b,
+                    structure=[],
+                    extra={
+                        "accepted": accepted,
+                        "rejected": rejected,
+                        "components": dsu.components,
+                        "carve": (a, b),
+                    },
+                )
             if dsu.components == 1:
                 break
         else:
             rejected += 1
-            yield StepSnapshot(
-                action=f"丢弃 {a} — {b}（已连通，会成环）",
-                current=b,
-                structure=[],
-                extra={
-                    "accepted": accepted,
-                    "rejected": rejected,
-                    "components": dsu.components,
-                    "carve": None,
-                },
-            )
+            if capture:
+                yield StepSnapshot(
+                    action=f"丢弃 {a} — {b}（已连通，会成环）",
+                    current=b,
+                    structure=[],
+                    extra={
+                        "accepted": accepted,
+                        "rejected": rejected,
+                        "components": dsu.components,
+                        "carve": None,
+                    },
+                )
 
-    yield StepSnapshot(
-        action="生成完成",
-        structure=[],
-        visited=set(maze.cells[r][c].pos for r in range(rows) for c in range(cols)),
-        done=True,
-        extra={
-            "accepted": accepted,
-            "rejected": rejected,
-            "components": dsu.components,
-            "passages": len(maze.passages()),
-        },
-    )
+    if capture:
+        yield StepSnapshot(
+            action="生成完成",
+            structure=[],
+            visited={(r, c) for r in range(rows) for c in range(cols)},
+            done=True,
+            extra={
+                "accepted": accepted,
+                "rejected": rejected,
+                "components": dsu.components,
+                "passages": len(maze.passages()),
+            },
+        )
 
 
 def generate(rows: int, cols: int, rng: random.Random) -> Maze:
     """一次性生成并返回迷宫。"""
     maze = Maze(rows, cols)
-    for _ in generate_steps(rows, cols, rng, maze):
+    for _ in generate_steps(rows, cols, rng, maze, capture=False):
         pass
     return maze

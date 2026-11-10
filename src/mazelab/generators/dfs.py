@@ -5,6 +5,10 @@
 
 课堂对应：栈、图遍历、回溯。生成结果的通道数恰好为 格数 − 1，
 因此必然是完美迷宫（连通、无环）。
+
+性能说明：每帧快照都要复制 visited / 栈，逐帧开销是 O(n)，全部走完就是 O(n²)。
+``generate()`` 只要结果不要过程，所以用 ``capture=False`` 跳过所有快照构造，
+生成本身回到 O(n)。
 """
 
 from __future__ import annotations
@@ -21,6 +25,8 @@ def generate_steps(
     cols: int,
     rng: random.Random,
     maze: Maze | None = None,
+    *,
+    capture: bool = True,
 ) -> Iterator[StepSnapshot]:
     """逐步生成迷宫，每步代表一次有教学意义的状态变化。
 
@@ -29,6 +35,7 @@ def generate_steps(
 
     传入 ``maze`` 时就地雕刻它（调用方可以随时看到最新状态），
     否则内部新建一个只在这个生成器里可见的迷宫。
+    ``capture=False`` 时不产出快照，只推进算法状态——``generate()`` 用的就是这条路。
     """
     if maze is None:
         maze = Maze(rows, cols)
@@ -39,13 +46,14 @@ def generate_steps(
     visited: set[Point] = {start}
     stack: list[Point] = [start]
 
-    yield StepSnapshot(
-        action=f"从 {start} 出发",
-        current=start,
-        structure=list(stack),
-        visited=set(visited),
-        extra={"depth": len(stack), "carve": None},
-    )
+    if capture:
+        yield StepSnapshot(
+            action=f"从 {start} 出发",
+            current=start,
+            structure=list(stack),
+            visited=set(visited),
+            extra={"depth": len(stack), "carve": None},
+        )
 
     while stack:
         cur = stack[-1]
@@ -55,35 +63,38 @@ def generate_steps(
             maze.carve(cur, nxt)
             visited.add(nxt)
             stack.append(nxt)
-            yield StepSnapshot(
-                action=f"前进 {cur} → {nxt}",
-                current=nxt,
-                structure=list(stack),
-                visited=set(visited),
-                extra={"depth": len(stack), "carve": (cur, nxt)},
-            )
+            if capture:
+                yield StepSnapshot(
+                    action=f"前进 {cur} → {nxt}",
+                    current=nxt,
+                    structure=list(stack),
+                    visited=set(visited),
+                    extra={"depth": len(stack), "carve": (cur, nxt)},
+                )
         else:
             stack.pop()
-            yield StepSnapshot(
-                action=f"回溯，离开 {cur}",
-                current=stack[-1] if stack else None,
-                structure=list(stack),
-                visited=set(visited),
-                extra={"depth": len(stack), "carve": None},
-            )
+            if capture:
+                yield StepSnapshot(
+                    action=f"回溯，离开 {cur}",
+                    current=stack[-1] if stack else None,
+                    structure=list(stack),
+                    visited=set(visited),
+                    extra={"depth": len(stack), "carve": None},
+                )
 
-    yield StepSnapshot(
-        action="生成完成",
-        structure=[],
-        visited=set(visited),
-        done=True,
-        extra={"visited": len(visited), "passages": len(maze.passages())},
-    )
+    if capture:
+        yield StepSnapshot(
+            action="生成完成",
+            structure=[],
+            visited=set(visited),
+            done=True,
+            extra={"visited": len(visited), "passages": len(maze.passages())},
+        )
 
 
 def generate(rows: int, cols: int, rng: random.Random) -> Maze:
     """一次性生成并返回迷宫（内部消费 :func:`generate_steps`，逻辑只有一份）。"""
     maze = Maze(rows, cols)
-    for _ in generate_steps(rows, cols, rng, maze):
+    for _ in generate_steps(rows, cols, rng, maze, capture=False):
         pass
     return maze

@@ -6,6 +6,10 @@
 但用堆实现，正好对应课堂上的优先队列。
 
 与 DFS 的差别：Prim 从边界均匀扩张，迷宫分支短而多；DFS 则倾向长走廊。
+
+性能说明：快照里包含 visited 与 frontier 的副本，堆的大小随规模线性增长，
+因此逐帧全部走完是 O(n²)。``generate()`` 用 ``capture=False`` 跳过这些副本，
+生成回到 O(n log n)（每条边一次堆操作）。
 """
 
 from __future__ import annotations
@@ -24,8 +28,13 @@ def generate_steps(
     cols: int,
     rng: random.Random,
     maze: Maze | None = None,
+    *,
+    capture: bool = True,
 ) -> Iterator[StepSnapshot]:
-    """逐步生成迷宫：每次从 frontier 中取权重最小的一格，与已访问邻格连通并扩展。"""
+    """逐步生成迷宫：每次从 frontier 中取权重最小的一格，与已访问邻格连通并扩展。
+
+    ``capture=False`` 时不产出快照，只推进算法状态。
+    """
     if maze is None:
         maze = Maze(rows, cols)
     elif (maze.rows, maze.cols) != (rows, cols):
@@ -35,59 +44,67 @@ def generate_steps(
     visited: set[Point] = {start}
     tie = itertools.count()  # 权重相同时的稳定次序，避免比较坐标元组
     heap: list[tuple[float, int, Point, Point]] = []
+    frontier: set[Point] = set()  # 候选格，增量维护，免去每帧扫描整个堆
 
     def push_candidates(source: Point) -> None:
         for nb in maze.adjacent(source):
             if nb not in visited:
                 heapq.heappush(heap, (rng.random(), next(tie), nb, source))
+                frontier.add(nb)
 
     push_candidates(start)
-    yield StepSnapshot(
-        action=f"从 {start} 出发",
-        current=start,
-        structure=[],
-        visited=set(visited),
-        frontier={item[2] for item in heap},
-        extra={"heap_size": len(heap), "carve": None},
-    )
+    if capture:
+        yield StepSnapshot(
+            action=f"从 {start} 出发",
+            current=start,
+            structure=[],
+            visited=set(visited),
+            frontier=set(frontier),
+            extra={"heap_size": len(heap), "carve": None},
+        )
 
     while heap:
         weight, _, target, source = heapq.heappop(heap)
         if target in visited:
-            yield StepSnapshot(
-                action=f"跳过 {target}（已访问）",
-                current=target,
-                structure=[(round(w, 3), t) for w, _, t, _ in heap],
-                visited=set(visited),
-                frontier={item[2] for item in heap},
-                extra={"heap_size": len(heap), "carve": None},
-            )
+            if capture:
+                yield StepSnapshot(
+                    action=f"跳过 {target}（已访问）",
+                    current=target,
+                    structure=[],
+                    visited=set(visited),
+                    frontier=set(frontier),
+                    extra={"heap_size": len(heap), "carve": None},
+                )
             continue
 
         maze.carve(source, target)
         visited.add(target)
+        frontier.discard(target)
         push_candidates(target)
-        yield StepSnapshot(
-            action=f"接入 {target}（来自 {source}，权重 {weight:.3f}）",
-            current=target,
-            structure=[(round(w, 3), t) for w, _, t, _ in heap],
-            visited=set(visited),
-            frontier={item[2] for item in heap},
-            extra={"heap_size": len(heap), "carve": (source, target)},
-        )
+        if capture:
+            yield StepSnapshot(
+                action=f"接入 {target}（来自 {source}，权重 {weight:.3f}）",
+                current=target,
+                structure=[],
+                visited=set(visited),
+                frontier=set(frontier),
+                extra={"heap_size": len(heap), "carve": (source, target)},
+            )
 
-    yield StepSnapshot(
-        action="生成完成",
-        structure=[],
-        visited=set(visited),
-        done=True,
-        extra={"visited": len(visited), "passages": len(maze.passages())},
-    )
+    if capture:
+        yield StepSnapshot(
+            action="生成完成",
+            structure=[],
+            visited=set(visited),
+            frontier=set(),
+            done=True,
+            extra={"visited": len(visited), "passages": len(maze.passages())},
+        )
 
 
 def generate(rows: int, cols: int, rng: random.Random) -> Maze:
     """一次性生成并返回迷宫。"""
     maze = Maze(rows, cols)
-    for _ in generate_steps(rows, cols, rng, maze):
+    for _ in generate_steps(rows, cols, rng, maze, capture=False):
         pass
     return maze
