@@ -19,6 +19,8 @@ from collections.abc import Iterator
 from mazelab.core.maze import Maze
 from mazelab.core.snapshot import Point, StepSnapshot
 
+from ._common import drain, resolve_maze
+
 
 def generate_steps(
     rows: int,
@@ -37,10 +39,7 @@ def generate_steps(
     否则内部新建一个只在这个生成器里可见的迷宫。
     ``capture=False`` 时不产出快照，只推进算法状态——``generate()`` 用的就是这条路。
     """
-    if maze is None:
-        maze = Maze(rows, cols)
-    elif (maze.rows, maze.cols) != (rows, cols):
-        raise ValueError(f"传入的迷宫尺寸 {maze.rows}×{maze.cols} 与参数 {rows}×{cols} 不一致")
+    maze = resolve_maze(rows, cols, maze)
 
     start = (rng.randrange(rows), rng.randrange(cols))
     visited: set[Point] = {start}
@@ -94,7 +93,4 @@ def generate_steps(
 
 def generate(rows: int, cols: int, rng: random.Random) -> Maze:
     """一次性生成并返回迷宫（内部消费 :func:`generate_steps`，逻辑只有一份）。"""
-    maze = Maze(rows, cols)
-    for _ in generate_steps(rows, cols, rng, maze, capture=False):
-        pass
-    return maze
+    return drain(generate_steps, rows, cols, rng)

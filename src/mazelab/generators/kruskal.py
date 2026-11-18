@@ -20,6 +20,8 @@ from mazelab.core.disjoint_set import DisjointSet
 from mazelab.core.maze import Maze
 from mazelab.core.snapshot import Point, StepSnapshot
 
+from ._common import drain, resolve_maze
+
 
 def _edges(maze: Maze) -> list[tuple[Point, Point]]:
     """枚举所有"内部墙"对应的候选边，每对相邻格只出现一次。"""
@@ -45,10 +47,7 @@ def generate_steps(
 
     ``capture=False`` 时不产出快照，只推进算法状态。
     """
-    if maze is None:
-        maze = Maze(rows, cols)
-    elif (maze.rows, maze.cols) != (rows, cols):
-        raise ValueError(f"传入的迷宫尺寸 {maze.rows}×{maze.cols} 与参数 {rows}×{cols} 不一致")
+    maze = resolve_maze(rows, cols, maze)
 
     def index(pos: Point) -> int:
         return pos[0] * maze.cols + pos[1]
@@ -115,7 +114,4 @@ def generate_steps(
 
 def generate(rows: int, cols: int, rng: random.Random) -> Maze:
     """一次性生成并返回迷宫。"""
-    maze = Maze(rows, cols)
-    for _ in generate_steps(rows, cols, rng, maze, capture=False):
-        pass
-    return maze
+    return drain(generate_steps, rows, cols, rng)

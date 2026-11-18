@@ -24,6 +24,8 @@ from mazelab.core.maze import Maze
 from mazelab.core.path import reconstruct_path
 from mazelab.core.snapshot import Point, StepSnapshot
 
+from ._common import check_endpoints, collect_path
+
 
 def manhattan(a: Point, b: Point) -> int:
     """两格之间的曼哈顿距离，作为 A* 的启发函数 h。"""
@@ -32,8 +34,7 @@ def manhattan(a: Point, b: Point) -> int:
 
 def solve_steps(maze: Maze, start: Point, goal: Point) -> Iterator[StepSnapshot]:
     """逐步求解：每次从优先队列取 f 值最小的格子并扩展。"""
-    maze.cell(start)
-    maze.cell(goal)
+    check_endpoints(maze, start, goal)
 
     if start == goal:
         yield StepSnapshot(
@@ -112,8 +113,4 @@ def solve_steps(maze: Maze, start: Point, goal: Point) -> Iterator[StepSnapshot]
 
 def solve(maze: Maze, start: Point, goal: Point) -> list[Point] | None:
     """返回最短路径（起点在前），不可达时返回 ``None``。"""
-    path: list[Point] | None = None
-    for snapshot in solve_steps(maze, start, goal):
-        if snapshot.done:
-            path = snapshot.path or None
-    return path
+    return collect_path(solve_steps, maze, start, goal)

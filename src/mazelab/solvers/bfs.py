@@ -16,11 +16,12 @@ from mazelab.core.maze import Maze
 from mazelab.core.path import reconstruct_path
 from mazelab.core.snapshot import Point, StepSnapshot
 
+from ._common import check_endpoints, collect_path
+
 
 def solve_steps(maze: Maze, start: Point, goal: Point) -> Iterator[StepSnapshot]:
     """逐步求解：每次出队一个格子并扩展其未访问邻居。"""
-    maze.cell(start)
-    maze.cell(goal)
+    check_endpoints(maze, start, goal)
 
     visited: set[Point] = {start}
     parent: dict[Point, Point | None] = {start: None}
@@ -90,8 +91,4 @@ def solve_steps(maze: Maze, start: Point, goal: Point) -> Iterator[StepSnapshot]
 
 def solve(maze: Maze, start: Point, goal: Point) -> list[Point] | None:
     """返回最短路径（起点在前），不可达时返回 ``None``。"""
-    path: list[Point] | None = None
-    for snapshot in solve_steps(maze, start, goal):
-        if snapshot.done:
-            path = snapshot.path or None
-    return path
+    return collect_path(solve_steps, maze, start, goal)
