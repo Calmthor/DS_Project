@@ -347,16 +347,15 @@ def legend(color: bool = True, ascii_arrows: bool = False) -> str:
     arrow = _ARROWS_ASCII[(0, 1)] if ascii_arrows else _ARROWS[(0, 1)]
     path = "*" if ascii_arrows else "√"
     dot = "." if ascii_arrows else "·"
-    line = "+" if ascii_arrows else "│─"
     parts = [
         ("S", "start", "起点"),
         ("G", "goal", "终点"),
         (arrow, "head", "当前格"),
         (path, "path", "最终路径"),
-        (line, "route", "当前分支"),
+        ("-", "route", "当前分支"),
         (dot, "frontier", "候选"),
-        ("x", "dead", "确定死路"),
-        ("o", "visited", "走过未定"),
+        ("x", "dead", "确定的死路"),
+        ("o", "visited", "走过的"),
     ]
     pieces = []
     for ch, key, label in parts:
