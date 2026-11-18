@@ -1,7 +1,7 @@
-"""交互演示测试：帧渲染、箭头方向、分支与岔路的优先级、输入解析。
+"""交互演示测试：排版、符号、连线、分支优先级、空格暂停。
 
 动画本身不好断言，所以只验证可观察的结果：
-排版等宽、上色不破坏布局、当前分支优先于已访问、参数非法时有提示。
+去色后排版等宽、符号与颜色键对应、当前分支优先于已访问、按键能暂停。
 """
 
 from __future__ import annotations
@@ -14,13 +14,37 @@ from mazelab.cli import main
 from mazelab.core.snapshot import StepSnapshot
 from mazelab.generators import generate
 from mazelab.solvers import SOLVERS
-from mazelab.tui import ask_choice, ask_int, cell_mark, head_char, render, run_demo
+from mazelab.tui import (
+    _Keyboard,
+    ask_choice,
+    ask_int,
+    cell_mark,
+    head_char,
+    render,
+    route_glyph,
+    run_demo,
+)
 
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 
 def strip_ansi(text: str) -> str:
     return ANSI.sub("", text)
+
+
+class _FakeKeyboard:
+    """按脚本返回按键；脚本用完后返回 None（视为未按键）。"""
+
+    enabled = True
+
+    def __init__(self, keys: list[str]) -> None:
+        self.keys = list(keys)
+
+    def read(self, timeout: float | None = None) -> str | None:
+        return self.keys.pop(0) if self.keys else None
+
+
+# ---------- 排版 ----------
 
 
 def test_render_matches_static_layout() -> None:
@@ -56,6 +80,9 @@ def test_render_marks_start_and_goal() -> None:
     assert " G " in text
 
 
+# ---------- 符号 ----------
+
+
 def test_head_char_follows_direction() -> None:
     down = StepSnapshot(action="", current=(1, 1), extra={"route": [(0, 1), (1, 1)]})
     right = StepSnapshot(action="", current=(1, 1), extra={"route": [(1, 0), (1, 1)]})
@@ -70,6 +97,24 @@ def test_head_char_without_parent() -> None:
     assert head_char(solo) == "o"
 
 
+def test_dead_end_and_frontier_symbols() -> None:
+    snapshot = StepSnapshot(
+        action="",
+        current=(0, 0),
+        visited={(1, 1)},
+        frontier={(2, 2)},
+        extra={"route": [(0, 0)]},
+    )
+    assert cell_mark(snapshot, (1, 1), (0, 0), (3, 3), "→") == ("x", "visited")
+    assert cell_mark(snapshot, (2, 2), (0, 0), (3, 3), "→") == ("·", "frontier")
+
+
+def test_final_path_uses_check_mark() -> None:
+    snapshot = StepSnapshot(action="", path=[(1, 1)], extra={"route": []})
+    assert cell_mark(snapshot, (1, 1), (0, 0), (3, 3), "→") == ("√", "path")
+    assert cell_mark(snapshot, (1, 1), (0, 0), (3, 3), "→", ascii_mode=True) == ("*", "path")
+
+
 def test_route_beats_visited_but_not_current() -> None:
     """既在当前分支、又走过一次的格子，应按当前分支显示。"""
     snapshot = StepSnapshot(
@@ -80,9 +125,10 @@ def test_route_beats_visited_but_not_current() -> None:
     )
     start, goal = (0, 0), (3, 3)
 
-    assert cell_mark(snapshot, (0, 1), start, goal, "→") == ("+", "route")
+    # (0,1) 左右都是分支 → 横线；当前格优先显示箭头；纯已访问格显示 x
+    assert cell_mark(snapshot, (0, 1), start, goal, "→") == ("─", "route")
     assert cell_mark(snapshot, (0, 2), start, goal, "→") == ("→", "head")
-    assert cell_mark(snapshot, (1, 1), start, goal, "→") == (".", "visited")
+    assert cell_mark(snapshot, (1, 1), start, goal, "→") == ("x", "visited")
 
 
 def test_path_beats_route() -> None:
@@ -92,15 +138,30 @@ def test_path_beats_route() -> None:
         path=[(0, 0), (0, 1)],
         extra={"route": [(0, 0), (0, 1)]},
     )
-    assert cell_mark(snapshot, (0, 1), (0, 0), (2, 2), "→") == ("*", "path")
+    assert cell_mark(snapshot, (0, 1), (0, 0), (2, 2), "→") == ("√", "path")
 
 
-def test_render_ascii_arrows() -> None:
+def test_route_glyph_shapes() -> None:
+    assert route_glyph({(0, 0), (0, 1)}, (0, 1)) == "─"       # 水平
+    assert route_glyph({(0, 1), (1, 1)}, (0, 1)) == "│"       # 垂直
+    assert route_glyph({(1, 0), (1, 1), (0, 1)}, (1, 1)) == "┘"  # 转角
+    assert route_glyph({(5, 5)}, (5, 5)) == "·"               # 孤立
+
+
+def test_route_glyph_ascii() -> None:
+    assert route_glyph({(1, 0), (1, 1), (0, 1)}, (1, 1), ascii_mode=True) == "+"
+    assert route_glyph({(0, 0), (0, 1)}, (0, 1), ascii_mode=True) == "-"
+    assert route_glyph({(0, 1), (1, 1)}, (0, 1), ascii_mode=True) == "|"
+    assert route_glyph({(5, 5)}, (5, 5), ascii_mode=True) == "*"
+
+
+def test_render_ascii_mode_has_no_unicode_glyphs() -> None:
     maze = generate("dfs", 6, 6, seed=4)
     start, goal = (0, 0), (5, 5)
     steps = list(SOLVERS["bfs"].solve_steps(maze, start, goal))
     text = render(maze, steps[len(steps) // 2], start, goal, color=False, ascii_arrows=True)
-    assert not any(a in text for a in "↑↓←→")
+    for ch in "│─┌┐└┘√·↑↓←→":
+        assert ch not in text
 
 
 def test_solver_snapshots_expose_route() -> None:
@@ -114,12 +175,28 @@ def test_solver_snapshots_expose_route() -> None:
             assert snapshot.current is None or route[-1] == snapshot.current
 
 
+# ---------- 交互与暂停 ----------
+
+
 def test_run_demo_completes(capsys) -> None:
     assert run_demo(4, 5, "dfs", "bfs", seed=1, delay=0) == 0
     out = capsys.readouterr().out
     assert "MazeLab 演示" in out
-    assert "当前探索分支" in out
+    assert "当前分支" in out
     assert "最短路径" in out
+
+
+def test_space_pauses_and_resumes(capsys) -> None:
+    keyboard = _FakeKeyboard([" ", " "])
+    assert run_demo(3, 3, "dfs", "bfs", seed=1, delay=0, keyboard=keyboard) == 0
+    out = capsys.readouterr().out
+    assert "已暂停" in out
+    assert "最短路径" in out
+
+
+def test_keyboard_disabled_when_stdin_is_not_tty() -> None:
+    assert _Keyboard().enabled is False
+    assert _Keyboard().read(0) is None
 
 
 def test_run_demo_supports_single_row_maze() -> None:

@@ -1,11 +1,14 @@
 """交互式终端演示：选尺寸 → 生成迷宫 → 选算法 → 逐帧展示求解过程。
 
 视觉约定：
-- 当前格用方向箭头表示（从父节点指向当前格），比一个静止的标记更能看出"往哪走"；
-- 颜色按状态区分：起点/终点、当前分支、走过的岔路、候选、最终路径各一色，
-  所以"既是当前分支又是旧岔路"的格子会按当前分支着色——它未必是错的；
-- 关掉颜色（``--no-color``）或用 ASCII 箭头（``--ascii``）时，字符和排版完全不变，
-  只是少了转义序列，方便在不支持 ANSI 的终端或重定向场景里使用。
+- 当前格用方向箭头表示（由父节点指向当前格），看出搜索往哪走；
+- 走过的岔路用红色 ``x``，最终路径用绿色 ``√``，候选是白色圆点 ``·``；
+- 当前探索分支用白色连成一条线：格子内按邻接方向选 ``│─┌┐└┘├┤┬┴┼``，
+  格子之间的空隙也补上连接符，所以整条分支看起来是连续的白线；
+- 一个格子既在当前分支上、又走过一次时，按分支显示——它未必是错的。
+
+关掉颜色（``--no-color``）或用 ASCII 模式（``--ascii``）时，排版完全不变，
+只是少了颜色转义、并把特殊符号换成纯 ASCII，方便在不支持 Unicode 的终端里用。
 """
 
 from __future__ import annotations
@@ -26,14 +29,14 @@ MAX_SIZE = 40
 
 RESET = "\x1b[0m"
 
-# 256 色：墙面压暗，让内容跳出来
+# 256 色：墙面压暗，让内容跳出来；岔路用暗红，避免和亮红的终点抢眼
 PALETTE = {
-    "wall": "\x1b[38;5;240m",
-    "visited": "\x1b[38;5;245m",   # 走过的岔路
-    "route": "\x1b[38;5;51m",      # 当前这条分支
-    "frontier": "\x1b[38;5;220m",  # 候选
-    "path": "\x1b[1;38;5;46m",     # 最终路径
-    "head": "\x1b[1;38;5;213m",    # 当前格
+    "wall": "\x1b[38;5;238m",
+    "visited": "\x1b[38;5;124m",   # 走过的岔路：暗红 x
+    "route": "\x1b[38;5;255m",     # 当前分支：白线
+    "frontier": "\x1b[38;5;250m",  # 候选：白点
+    "path": "\x1b[1;38;5;46m",     # 最终路径：亮绿 √
+    "head": "\x1b[1;38;5;231m",    # 当前格：白色加粗箭头
     "start": "\x1b[1;38;5;46m",
     "goal": "\x1b[1;38;5;196m",
 }
@@ -41,7 +44,43 @@ PALETTE = {
 _ARROWS = {(1, 0): "↓", (-1, 0): "↑", (0, 1): "→", (0, -1): "←"}
 _ARROWS_ASCII = {(1, 0): "v", (-1, 0): "^", (0, 1): ">", (0, -1): "<"}
 
+# 当前分支的连线符号：按"这条分支连向了哪几个方向"决定用哪个字符
+_LINE = {
+    frozenset({"N", "S"}): "│",
+    frozenset({"E", "W"}): "─",
+    frozenset({"S", "E"}): "┌",
+    frozenset({"S", "W"}): "┐",
+    frozenset({"N", "E"}): "└",
+    frozenset({"N", "W"}): "┘",
+    frozenset({"N", "S", "E"}): "├",
+    frozenset({"N", "S", "W"}): "┤",
+    frozenset({"N", "E", "W"}): "┴",
+    frozenset({"S", "E", "W"}): "┬",
+    frozenset({"N", "S", "E", "W"}): "┼",
+    frozenset({"N"}): "│",
+    frozenset({"S"}): "│",
+    frozenset({"E"}): "─",
+    frozenset({"W"}): "─",
+    frozenset(): "·",
+}
+
 _ansi_ready: bool | None = None
+
+# 一格是三个字符宽（" X "），横向穿越时要把两边的空格也画成横线，
+# 竖线则保持在中间一格，才能和边框行里的 " │ " 对齐
+_WIDE = {
+    "─": "───",
+    "│": " │ ",
+    "┌": " ┌─",
+    "┐": "─┐ ",
+    "└": " └─",
+    "┘": "─┘ ",
+    "├": " ├─",
+    "┤": "─┤ ",
+    "┬": "─┬─",
+    "┴": "─┴─",
+    "┼": "─┼─",
+}
 
 
 # ---------- 终端能力探测 ----------
@@ -87,6 +126,65 @@ def color_enabled(requested: bool) -> bool:
     return bool(requested) and not os.environ.get("NO_COLOR") and _ansi_supported()
 
 
+# ---------- 键盘 ----------
+
+
+class _Keyboard:
+    """非阻塞读一个键，用来支持"空格暂停"。
+
+    Windows 用 msvcrt，其余平台用 select + cbreak；标准输入不是终端时直接禁用，
+    这样重定向/管道场景不会卡住。
+    """
+
+    def __init__(self) -> None:
+        try:
+            self.enabled = sys.stdin is not None and sys.stdin.isatty()
+        except Exception:  # 某些测试替身没有 isatty()
+            self.enabled = False
+
+    def read(self, timeout: float | None) -> str | None:
+        """读一个按键；返回 None 表示超时（或键盘不可用）。"""
+        if not self.enabled:
+            if timeout:
+                time.sleep(timeout)
+            return None
+        deadline = None if timeout is None else time.monotonic() + timeout
+        while True:
+            ch = self._poll()
+            if ch is not None:
+                if ch == "\x03":  # Ctrl+C 在原始模式下不会自动抛异常
+                    raise KeyboardInterrupt
+                return ch
+            if deadline is not None and time.monotonic() >= deadline:
+                return None
+            time.sleep(0.02)
+
+    def _poll(self) -> str | None:
+        if os.name == "nt":
+            import msvcrt
+
+            if msvcrt.kbhit():
+                return msvcrt.getwch()
+            return None
+        try:
+            import select
+            import termios
+            import tty
+
+            fd = sys.stdin.fileno()
+            old = termios.tcgetattr(fd)
+            try:
+                tty.setcbreak(fd)
+                ready, _, _ = select.select([fd], [], [], 0)
+                if not ready:
+                    return None
+                return sys.stdin.read(1)
+            finally:
+                termios.tcsetattr(fd, termios.TCSADRAIN, old)
+        except Exception:
+            return None
+
+
 # ---------- 渲染 ----------
 
 
@@ -101,12 +199,35 @@ def head_char(snapshot: StepSnapshot, ascii_arrows: bool = False) -> str:
     return "o"
 
 
+def route_glyph(route_cells: set[Point], pos: Point, ascii_mode: bool = False) -> str:
+    """当前分支的连线字符：看这条分支在本格连向了哪几个方向。"""
+    r, c = pos
+    dirs: set[str] = set()
+    if (r - 1, c) in route_cells:
+        dirs.add("N")
+    if (r + 1, c) in route_cells:
+        dirs.add("S")
+    if (r, c + 1) in route_cells:
+        dirs.add("E")
+    if (r, c - 1) in route_cells:
+        dirs.add("W")
+    if not dirs:
+        return "*" if ascii_mode else "·"
+    if ascii_mode:
+        if len(dirs) >= 2:
+            return "+"
+        return "|" if dirs & {"N", "S"} else "-"
+    return _LINE.get(frozenset(dirs), "·")
+
+
 def cell_mark(
     snapshot: StepSnapshot,
     pos: Point,
     start: Point,
     goal: Point,
     head: str,
+    route_cells: set[Point] | None = None,
+    ascii_mode: bool = False,
 ) -> tuple[str, str]:
     """返回 (字符, 调色板键)。
 
@@ -120,13 +241,15 @@ def cell_mark(
     if pos == snapshot.current:
         return head, "head"
     if pos in snapshot.path:
-        return "*", "path"
-    if pos in (snapshot.extra.get("route") or ()):
-        return "+", "route"
+        return ("*" if ascii_mode else "√"), "path"
+    if route_cells is None:
+        route_cells = set(snapshot.extra.get("route") or ())
+    if pos in route_cells:
+        return route_glyph(route_cells, pos, ascii_mode), "route"
     if pos in snapshot.frontier:
-        return ",", "frontier"
+        return ("." if ascii_mode else "·"), "frontier"
     if pos in snapshot.visited:
-        return ".", "visited"
+        return "x", "visited"
     return " ", ""
 
 
@@ -138,9 +261,15 @@ def render(
     *,
     color: bool = True,
     ascii_arrows: bool = False,
+    ascii_mode: bool | None = None,
 ) -> str:
-    """渲染一帧。排版与 ``Maze.to_ascii()`` 完全一致，只是可能多了颜色转义。"""
+    """渲染一帧。排版与 ``Maze.to_ascii()`` 等宽，只是字符和颜色更丰富。"""
+    if ascii_mode is None:
+        ascii_mode = ascii_arrows
     head = head_char(snapshot, ascii_arrows)
+    route_cells = set(snapshot.extra.get("route") or ())
+    v_link = "|" if ascii_mode else "│"
+    h_link = "-" if ascii_mode else "─"
 
     def paint(text: str, key: str) -> str:
         code = PALETTE.get(key, "") if color else ""
@@ -148,19 +277,32 @@ def render(
 
     lines: list[str] = []
     for r in range(maze.rows):
-        border = ["+"]
+        seg = [paint("+", "wall")]
         for c in range(maze.cols):
-            border.append("---" if maze.cells[r][c].walls & N else "   ")
-            border.append("+")
-        lines.append(paint("".join(border), "wall"))
+            if maze.cells[r][c].walls & N:
+                seg.append(paint("---", "wall"))
+            elif r > 0 and (r, c) in route_cells and (r - 1, c) in route_cells:
+                seg.append(paint(f" {v_link} ", "route"))  # 上下两格都在分支上，补一段竖线
+            else:
+                seg.append(paint("   ", "wall"))
+            seg.append(paint("+", "wall"))
+        lines.append("".join(seg))
 
         body: list[str] = []
         for c in range(maze.cols):
             cell = maze.cells[r][c]
-            body.append(paint("|" if cell.walls & W else " ", "wall"))
-            ch, key = cell_mark(snapshot, (r, c), start, goal, head)
-            body.append(paint(f" {ch} ", key))
-        body.append(paint("|" if maze.cells[r][maze.cols - 1].walls & E else " ", "wall"))
+            if cell.walls & W:
+                body.append(paint("|", "wall"))
+            elif c > 0 and (r, c) in route_cells and (r, c - 1) in route_cells:
+                body.append(paint(h_link, "route"))  # 左右两格都在分支上，补一段横线
+            else:
+                body.append(paint(" ", "wall"))
+            ch, key = cell_mark(
+                snapshot, (r, c), start, goal, head, route_cells, ascii_mode
+            )
+            body.append(paint(_WIDE.get(ch, f" {ch} ") if key == "route" else f" {ch} ", key))
+        last = maze.cells[r][maze.cols - 1]
+        body.append(paint("|" if last.walls & E else " ", "wall"))
         lines.append("".join(body))
 
     lines.append(paint("+" + "---+" * maze.cols, "wall"))
@@ -170,14 +312,17 @@ def render(
 def legend(color: bool = True, ascii_arrows: bool = False) -> str:
     """图例：颜色开启时，每个符号也按对应颜色显示。"""
     arrow = _ARROWS_ASCII[(0, 1)] if ascii_arrows else _ARROWS[(0, 1)]
+    path = "*" if ascii_arrows else "√"
+    dot = "." if ascii_arrows else "·"
+    line = "+" if ascii_arrows else "│─"
     parts = [
         ("S", "start", "起点"),
         ("G", "goal", "终点"),
         (arrow, "head", "当前格"),
-        ("*", "path", "最终路径"),
-        ("+", "route", "当前探索分支"),
-        (",", "frontier", "候选"),
-        (".", "visited", "走过的岔路"),
+        (path, "path", "最终路径"),
+        (line, "route", "当前分支"),
+        (dot, "frontier", "候选"),
+        ("x", "visited", "走过的岔路"),
     ]
     pieces = []
     for ch, key, label in parts:
@@ -253,6 +398,7 @@ def run_demo(
     *,
     color: bool = True,
     ascii_arrows: bool = False,
+    keyboard: _Keyboard | None = None,
 ) -> int:
     """跑一次完整演示：生成、逐帧求解、输出总结。"""
     if not 1 <= rows <= MAX_SIZE or not 1 <= cols <= MAX_SIZE:
@@ -260,12 +406,16 @@ def run_demo(
         return 2
 
     use_color = color_enabled(color) and not ascii_arrows
+    keyboard = keyboard if keyboard is not None else _Keyboard()
     maze = GENERATORS[generator].generate(rows, cols, random.Random(seed))
     start, goal = (0, 0), (rows - 1, cols - 1)
 
     print(f"MazeLab 演示：{rows}×{cols}｜生成 {generator}｜求解 {solver}｜seed={seed}")
     print(legend(use_color, ascii_arrows))
-    print(f"按 Ctrl+C 可随时中断；用 --delay 0.2 可加快（当前每步 {delay:g}s）")
+    hint = "按 Ctrl+C 可随时中断"
+    if keyboard.enabled:
+        hint += "，空格暂停/继续"
+    print(f"{hint}；用 --delay 0.2 可加快（当前每步 {delay:g}s）")
     print()
 
     screen = _Screen(min_lines=2 * rows + 3)
@@ -275,10 +425,21 @@ def run_demo(
     step_no = 0
     try:
         for step_no, snapshot in enumerate(SOLVERS[solver].solve_steps(maze, start, goal), 1):
-            picture = render(maze, snapshot, start, goal, color=use_color, ascii_arrows=ascii_arrows)
-            screen.paint(f"{picture}\n步骤 {step_no:3d}  {snapshot.action}\n")
+            picture = render(
+                maze, snapshot, start, goal, color=use_color, ascii_arrows=ascii_arrows
+            )
+            status = f"步骤 {step_no:3d}  {snapshot.action}"
+            screen.paint(f"{picture}\n{status}\n")
             final = snapshot
-            if delay > 0:
+
+            if keyboard.enabled:
+                if keyboard.read(delay) == " ":
+                    screen.paint(f"{picture}\n{status}\n⏸  已暂停，按空格继续\n")
+                    while True:
+                        key = keyboard.read(None)
+                        if key is None or key == " ":
+                            break
+            elif delay > 0:
                 time.sleep(delay)
     except KeyboardInterrupt:
         print()
