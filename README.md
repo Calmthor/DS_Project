@@ -86,6 +86,24 @@ mazelab solve   --input examples/maze_8x12.json --algorithm astar --format json
 mazelab validate --input examples/maze_8x12.json
 ```
 
+**交互式演示**（适合课堂讲解，能一步步看算法怎么走）：
+
+```powershell
+mazelab play                                        # 依次询问尺寸、生成算法、求解算法
+mazelab play --rows 10 --cols 10 --solver astar --delay 0.2
+mazelab play --rows 8 --cols 12 --algorithm prim --solver bfs --seed 7
+```
+
+直接敲 `mazelab`（不带子命令）也会进入该模式。启动后会依次询问行数、列数、
+生成算法、求解算法（直接回车用默认值），然后逐帧播放求解过程，默认每步停留 1 秒，
+用 `--delay` 调整。画面标记的含义：
+
+```text
+S 起点   G 终点   @ 当前格   * 最终路径   , 候选(frontier)   . 已访问
+```
+
+Ctrl+C 可随时中断；尺寸限制 1–40；终端放不下整帧时会自动改为逐帧追加输出。
+
 **最小使用示例**（同一 seed 必然生成同一迷宫）：
 
 ```console
@@ -204,7 +222,7 @@ python -m mazelab validate --input tmp.json
 ```text
 使用工具：DeepSeek Harness 中的编码智能体（deepseek-flash 模型）
 参与环节：方案对比与可行性分析、部分代码编写（core/generators/solvers/cli）、
-          测试用例编写、文档中的实测数据采集
+        测试用例编写、文档中的实测数据采集
 本人完成的设计、修改与判断：方案设计，算法思路设计，部分代码编写与修改，项目整体设计与分析，文档编写
 验证方法及结果：pytest 115 个用例全部通过；三种生成算法在 6 种尺寸下均通过
           连通性/无环性/墙位对称/边界封闭四项自检；BFS 与 A* 路径长度交叉验证一致

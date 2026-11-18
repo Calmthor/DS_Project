@@ -18,6 +18,7 @@ from mazelab.core.maze import Maze, Point
 from mazelab.core.validate import validate
 from mazelab.generators import GENERATORS, NAMES as GENERATOR_NAMES
 from mazelab.solvers import NAMES as SOLVER_NAMES, SOLVERS
+from mazelab.tui import DEFAULT_DELAY, interactive
 
 
 def _point(text: str) -> Point:
@@ -107,6 +108,18 @@ def cmd_validate(args: argparse.Namespace) -> int:
     return 0 if report.ok else 1
 
 
+def cmd_play(args: argparse.Namespace) -> int:
+    """交互式演示：没给的参数会在运行时询问。"""
+    return interactive(
+        rows=args.rows,
+        cols=args.cols,
+        generator=args.algorithm,
+        solver=args.solver,
+        delay=args.delay,
+        seed=args.seed,
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="mazelab",
@@ -114,7 +127,7 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument("--version", action="version", version=f"mazelab {__version__}")
-    sub = parser.add_subparsers(dest="command", required=True)
+    sub = parser.add_subparsers(dest="command", metavar="command")
 
     gen = sub.add_parser("generate", help="生成迷宫")
     gen.add_argument("--rows", type=int, default=10, help="行数")
@@ -138,12 +151,23 @@ def build_parser() -> argparse.ArgumentParser:
     validate_cmd.add_argument("--input", required=True, help="迷宫 JSON 文件")
     validate_cmd.set_defaults(func=cmd_validate)
 
+    play = sub.add_parser("play", help="交互式演示：选尺寸、生成、逐帧求解")
+    play.add_argument("--rows", type=int, default=None, help="行数（不给则运行时询问）")
+    play.add_argument("--cols", type=int, default=None, help="列数（不给则运行时询问）")
+    play.add_argument("--algorithm", choices=list(GENERATOR_NAMES), default=None, help="生成算法")
+    play.add_argument("--solver", choices=list(SOLVER_NAMES), default=None, help="求解算法")
+    play.add_argument("--delay", type=float, default=DEFAULT_DELAY, help="每帧停留秒数")
+    play.add_argument("--seed", type=int, default=None, help="随机种子（不给则随机）")
+    play.set_defaults(func=cmd_play)
+
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.command is None:  # 直接敲 mazelab 就进演示模式
+        return interactive()
     return args.func(args)
 
 
