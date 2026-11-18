@@ -59,7 +59,7 @@ def solve_steps(maze: Maze, start: Point, goal: Point) -> Iterator[StepSnapshot]
         structure=[(manhattan(start, goal), start)],
         visited=set(),
         frontier={start},
-        extra={"expanded": 0},
+        extra={"expanded": 0, "route": [start]},
     )
 
     expanded = 0
@@ -79,7 +79,7 @@ def solve_steps(maze: Maze, start: Point, goal: Point) -> Iterator[StepSnapshot]
                 visited=closed,
                 path=path,
                 done=True,
-                extra={"expanded": expanded, "distance": len(path) - 1, "f": f},
+                extra={"expanded": expanded, "distance": len(path) - 1, "f": f, "route": path},
             )
             return
 
@@ -98,7 +98,13 @@ def solve_steps(maze: Maze, start: Point, goal: Point) -> Iterator[StepSnapshot]
             structure=sorted((item[0], item[2]) for item in heap),
             visited=set(closed),
             frontier={item[2] for item in heap},
-            extra={"expanded": expanded, "g": g_score[cur], "f": f},
+            extra={
+                "expanded": expanded,
+                "g": g_score[cur],
+                "f": f,
+                # 从起点到当前格的父指针链，供可视化区分当前分支与走过的岔路
+                "route": reconstruct_path(parent, cur),
+            },
         )
 
     yield StepSnapshot(

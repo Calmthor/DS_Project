@@ -44,7 +44,7 @@ def solve_steps(maze: Maze, start: Point, goal: Point) -> Iterator[StepSnapshot]
         structure=list(queue),
         visited=set(visited),
         frontier=set(queue),
-        extra={"expanded": 0},
+        extra={"expanded": 0, "route": [start]},
     )
 
     expanded = 0
@@ -67,7 +67,7 @@ def solve_steps(maze: Maze, start: Point, goal: Point) -> Iterator[StepSnapshot]
                     frontier=set(queue),
                     path=path,
                     done=True,
-                    extra={"expanded": expanded, "distance": len(path) - 1},
+                    extra={"expanded": expanded, "distance": len(path) - 1, "route": path},
                 )
                 return
             yield StepSnapshot(
@@ -76,7 +76,12 @@ def solve_steps(maze: Maze, start: Point, goal: Point) -> Iterator[StepSnapshot]
                 structure=list(queue),
                 visited=set(visited),
                 frontier=set(queue),
-                extra={"expanded": expanded, "parent": cur},
+                extra={
+                    "expanded": expanded,
+                    "parent": cur,
+                    # 从起点到当前格的父指针链：可视化里用它区分"正在走的分支"和"走过的岔路"
+                    "route": reconstruct_path(parent, nb),
+                },
             )
 
     yield StepSnapshot(

@@ -1,56 +1,124 @@
-"""交互演示测试：帧渲染、输入解析、完整跑完。
+"""交互演示测试：帧渲染、箭头方向、分支与岔路的优先级、输入解析。
 
-动画本身不好断言，所以这里只验证可观察的结果：
-帧的排版与静态输出一致、起终点标记到位、参数非法时给提示、整段跑完不抛异常。
+动画本身不好断言，所以只验证可观察的结果：
+排版等宽、上色不破坏布局、当前分支优先于已访问、参数非法时有提示。
 """
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from mazelab.cli import main
+from mazelab.core.snapshot import StepSnapshot
 from mazelab.generators import generate
 from mazelab.solvers import SOLVERS
-from mazelab.tui import ask_choice, ask_int, frame, run_demo
+from mazelab.tui import ask_choice, ask_int, cell_mark, head_char, render, run_demo
+
+ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 
-def test_frame_keeps_the_same_layout_as_static_output() -> None:
+def strip_ansi(text: str) -> str:
+    return ANSI.sub("", text)
+
+
+def test_render_matches_static_layout() -> None:
     maze = generate("dfs", 5, 7, seed=1)
     start, goal = (0, 0), (4, 6)
     snapshot = next(SOLVERS["bfs"].solve_steps(maze, start, goal))
 
-    text = frame(maze, snapshot, start, goal)
+    text = render(maze, snapshot, start, goal, color=False)
     static = maze.to_ascii()
-    assert text.splitlines()[0] == static.splitlines()[0]  # 上边框不受标记影响
     assert len(text.splitlines()) == len(static.splitlines())
     assert all(len(line) == 4 * 7 + 1 for line in text.splitlines())
+    assert text.splitlines()[0] == static.splitlines()[0]
 
 
-def test_frame_marks_start_and_goal() -> None:
+def test_color_adds_ansi_without_breaking_width() -> None:
+    maze = generate("prim", 4, 6, seed=2)
+    snapshot = next(SOLVERS["astar"].solve_steps(maze, (0, 0), (3, 5)))
+
+    plain = render(maze, snapshot, (0, 0), (3, 5), color=False)
+    colored = render(maze, snapshot, (0, 0), (3, 5), color=True)
+
+    assert "\x1b[" in colored
+    assert strip_ansi(colored) == plain  # 上色不改变任何字符
+    assert all(len(line) == 4 * 6 + 1 for line in strip_ansi(colored).splitlines())
+
+
+def test_render_marks_start_and_goal() -> None:
     maze = generate("prim", 3, 3, seed=2)
     start, goal = (0, 0), (2, 2)
-    steps = list(SOLVERS["bfs"].solve_steps(maze, start, goal))
-
-    first = frame(maze, steps[0], start, goal)
-    assert " S " in first and " G " in first
-
-    # 起点在第一帧就是当前格，会被 S 覆盖；找一帧当前格不在起终点上，才看得到 @
-    mid = next(s for s in steps if s.current not in (None, start, goal))
-    assert " @ " in frame(maze, mid, start, goal)
+    snapshot = next(SOLVERS["bfs"].solve_steps(maze, start, goal))
+    text = render(maze, snapshot, start, goal, color=False)
+    assert " S " in text
+    assert " G " in text
 
 
-def test_frame_path_overrides_visited() -> None:
+def test_head_char_follows_direction() -> None:
+    down = StepSnapshot(action="", current=(1, 1), extra={"route": [(0, 1), (1, 1)]})
+    right = StepSnapshot(action="", current=(1, 1), extra={"route": [(1, 0), (1, 1)]})
+    assert head_char(down) == "↓"
+    assert head_char(right) == "→"
+    assert head_char(down, ascii_arrows=True) == "v"
+    assert head_char(right, ascii_arrows=True) == ">"
+
+
+def test_head_char_without_parent() -> None:
+    solo = StepSnapshot(action="", current=(0, 0), extra={"route": [(0, 0)]})
+    assert head_char(solo) == "o"
+
+
+def test_route_beats_visited_but_not_current() -> None:
+    """既在当前分支、又走过一次的格子，应按当前分支显示。"""
+    snapshot = StepSnapshot(
+        action="",
+        current=(0, 2),
+        visited={(0, 1), (1, 1), (0, 2)},
+        extra={"route": [(0, 0), (0, 1), (0, 2)]},
+    )
+    start, goal = (0, 0), (3, 3)
+
+    assert cell_mark(snapshot, (0, 1), start, goal, "→") == ("+", "route")
+    assert cell_mark(snapshot, (0, 2), start, goal, "→") == ("→", "head")
+    assert cell_mark(snapshot, (1, 1), start, goal, "→") == (".", "visited")
+
+
+def test_path_beats_route() -> None:
+    snapshot = StepSnapshot(
+        action="",
+        current=(2, 2),
+        path=[(0, 0), (0, 1)],
+        extra={"route": [(0, 0), (0, 1)]},
+    )
+    assert cell_mark(snapshot, (0, 1), (0, 0), (2, 2), "→") == ("*", "path")
+
+
+def test_render_ascii_arrows() -> None:
     maze = generate("dfs", 6, 6, seed=4)
-    final = list(SOLVERS["astar"].solve_steps(maze, (0, 0), (5, 5)))[-1]
-    text = frame(maze, final, (0, 0), (5, 5))
-    assert " * " in text
+    start, goal = (0, 0), (5, 5)
+    steps = list(SOLVERS["bfs"].solve_steps(maze, start, goal))
+    text = render(maze, steps[len(steps) // 2], start, goal, color=False, ascii_arrows=True)
+    assert not any(a in text for a in "↑↓←→")
+
+
+def test_solver_snapshots_expose_route() -> None:
+    """当前分支来自求解器的 extra["route"]，必须以起点开头、当前格结尾。"""
+    maze = generate("dfs", 5, 5, seed=1)
+    for name in ("bfs", "astar"):
+        for snapshot in SOLVERS[name].solve_steps(maze, (0, 0), (4, 4)):
+            route = snapshot.extra.get("route")
+            assert route, f"{name} 的快照缺少 route"
+            assert route[0] == (0, 0)
+            assert snapshot.current is None or route[-1] == snapshot.current
 
 
 def test_run_demo_completes(capsys) -> None:
     assert run_demo(4, 5, "dfs", "bfs", seed=1, delay=0) == 0
     out = capsys.readouterr().out
     assert "MazeLab 演示" in out
-    assert "步骤" in out
+    assert "当前探索分支" in out
     assert "最短路径" in out
 
 
@@ -93,6 +161,14 @@ def test_cli_play_runs_without_prompts(capsys) -> None:
     out = capsys.readouterr().out
     assert "MazeLab 演示" in out
     assert "最短路径" in out
+
+
+def test_cli_play_accepts_no_color_and_ascii(capsys) -> None:
+    assert main(
+        ["play", "--rows", "3", "--cols", "3", "--algorithm", "prim",
+         "--solver", "bfs", "--delay", "0", "--seed", "2", "--no-color", "--ascii"]
+    ) == 0
+    capsys.readouterr()
 
 
 def test_cli_play_rejects_oversized_maze(capsys) -> None:

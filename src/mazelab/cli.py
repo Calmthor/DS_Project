@@ -117,6 +117,8 @@ def cmd_play(args: argparse.Namespace) -> int:
         solver=args.solver,
         delay=args.delay,
         seed=args.seed,
+        color=not args.no_color,
+        ascii_arrows=args.ascii,
     )
 
 
@@ -158,6 +160,8 @@ def build_parser() -> argparse.ArgumentParser:
     play.add_argument("--solver", choices=list(SOLVER_NAMES), default=None, help="求解算法")
     play.add_argument("--delay", type=float, default=DEFAULT_DELAY, help="每帧停留秒数")
     play.add_argument("--seed", type=int, default=None, help="随机种子（不给则随机）")
+    play.add_argument("--no-color", action="store_true", help="关闭颜色输出")
+    play.add_argument("--ascii", action="store_true", help="用 ASCII 箭头并关闭颜色")
     play.set_defaults(func=cmd_play)
 
     return parser
