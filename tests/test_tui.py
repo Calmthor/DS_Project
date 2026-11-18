@@ -21,7 +21,9 @@ from mazelab.tui import (
     cell_mark,
     head_char,
     render,
+    route_dirs,
     route_glyph,
+    route_links,
     run_demo,
 )
 
@@ -142,17 +144,47 @@ def test_path_beats_route() -> None:
 
 
 def test_route_glyph_shapes() -> None:
-    assert route_glyph({(0, 0), (0, 1)}, (0, 1)) == "─"       # 水平
-    assert route_glyph({(0, 1), (1, 1)}, (0, 1)) == "│"       # 垂直
-    assert route_glyph({(1, 0), (1, 1), (0, 1)}, (1, 1)) == "┘"  # 转角
-    assert route_glyph({(5, 5)}, (5, 5)) == "·"               # 孤立
+    assert route_glyph({"E", "W"}) == "─"
+    assert route_glyph({"N", "S"}) == "│"
+    assert route_glyph({"S", "E"}) == "┌"   # 转角
+    assert route_glyph({"N", "W"}) == "┘"
+    assert route_glyph({"N"}) == "│"        # 路径端点
+    assert route_glyph(set()) == "·"
 
 
 def test_route_glyph_ascii() -> None:
-    assert route_glyph({(1, 0), (1, 1), (0, 1)}, (1, 1), ascii_mode=True) == "+"
-    assert route_glyph({(0, 0), (0, 1)}, (0, 1), ascii_mode=True) == "-"
-    assert route_glyph({(0, 1), (1, 1)}, (0, 1), ascii_mode=True) == "|"
-    assert route_glyph({(5, 5)}, (5, 5), ascii_mode=True) == "*"
+    assert route_glyph({"S", "E"}, ascii_mode=True) == "+"
+    assert route_glyph({"E", "W"}, ascii_mode=True) == "-"
+    assert route_glyph({"N", "S"}, ascii_mode=True) == "|"
+    assert route_glyph(set(), ascii_mode=True) == "*"
+
+
+def test_route_dirs_follows_path_order_not_adjacency() -> None:
+    """U 形路径：两条走廊并排相邻，只有顺序上连续的两格才算连接。
+
+    按邻接判断会把 (0,1)-(1,1) 连起来，凭空多出一条支路并冒出 ├ ┤ 岔口，
+    这正是之前画面里出现 "-|" 的原因。
+    """
+    route = [(0, 0), (0, 1), (0, 2), (1, 2), (1, 1), (1, 0)]
+    shapes = route_dirs(route)
+
+    assert shapes[(0, 1)] == {"W", "E"}  # 上下相邻但不连续，不产生竖线
+    assert shapes[(1, 1)] == {"W", "E"}
+    assert shapes[(0, 2)] == {"W", "S"}  # 这里是真正的转角
+
+    links = route_links(route)
+    assert frozenset({(0, 1), (1, 1)}) not in links
+    assert frozenset({(0, 2), (1, 2)}) in links
+
+
+def test_render_never_draws_junction_glyphs() -> None:
+    """一帧里不应出现 ├ ┤ ┬ ┴ ┼ 这类三向/四向岔口。"""
+    maze = generate("dfs", 9, 9, seed=3)
+    steps = list(SOLVERS["bfs"].solve_steps(maze, (0, 0), (8, 8)))
+    for snapshot in steps[::5]:
+        text = render(maze, snapshot, (0, 0), (8, 8), color=False)
+        for glyph in "├┤┬┴┼":
+            assert glyph not in text
 
 
 def test_render_ascii_mode_has_no_unicode_glyphs() -> None:
@@ -206,6 +238,11 @@ def test_run_demo_supports_single_row_maze() -> None:
 def test_run_demo_rejects_out_of_range_size(capsys) -> None:
     assert run_demo(0, 5, "dfs", "bfs", seed=1, delay=0) == 2
     assert "1–40" in capsys.readouterr().err
+
+
+def test_run_demo_rejects_negative_delay(capsys) -> None:
+    assert run_demo(3, 3, "dfs", "bfs", seed=1, delay=-1) == 2
+    assert "--delay" in capsys.readouterr().err
 
 
 def test_ask_int_retries_on_bad_input(monkeypatch) -> None:

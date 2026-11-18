@@ -199,21 +199,49 @@ def head_char(snapshot: StepSnapshot, ascii_arrows: bool = False) -> str:
     return "o"
 
 
-def route_glyph(route_cells: set[Point], pos: Point, ascii_mode: bool = False) -> str:
-    """当前分支的连线字符：看这条分支在本格连向了哪几个方向。"""
-    r, c = pos
-    dirs: set[str] = set()
-    if (r - 1, c) in route_cells:
-        dirs.add("N")
-    if (r + 1, c) in route_cells:
-        dirs.add("S")
-    if (r, c + 1) in route_cells:
-        dirs.add("E")
-    if (r, c - 1) in route_cells:
-        dirs.add("W")
+def _step_dir(a: Point, b: Point) -> str:
+    """从 a 走到 b 的方向。"""
+    dr, dc = b[0] - a[0], b[1] - a[1]
+    if dr == -1:
+        return "N"
+    if dr == 1:
+        return "S"
+    if dc == 1:
+        return "E"
+    return "W"
+
+
+def route_dirs(route: list[Point]) -> dict[Point, set[str]]:
+    """按路径顺序算出每格连向哪几个方向。
+
+    必须用顺序而不是"邻格是否也在路径上"：迷宫里两条走廊常常并排贴在一起，
+    按邻接判断会凭空连出一条不存在的支路，还会冒出 ├、┤ 这类三向岔口。
+    """
+    shapes: dict[Point, set[str]] = {}
+    for i, pos in enumerate(route):
+        dirs: set[str] = set()
+        if i > 0:
+            dirs.add(_step_dir(pos, route[i - 1]))  # 手臂朝向上一个格子
+        if i + 1 < len(route):
+            dirs.add(_step_dir(pos, route[i + 1]))  # 手臂朝向下一个格子
+        shapes[pos] = dirs
+    return shapes
+
+
+def route_links(route: list[Point]) -> set[frozenset[Point]]:
+    """路径上真正相邻的两格，只有它们之间才该补连接符。"""
+    return {frozenset(pair) for pair in zip(route, route[1:])}
+
+
+def route_glyph(dirs: set[str], ascii_mode: bool = False) -> str:
+    """当前分支的连线字符：直行只有横线或竖线，转角用 ┌┐└┘。"""
     if not dirs:
         return "*" if ascii_mode else "·"
     if ascii_mode:
+        if dirs == {"E", "W"}:
+            return "-"
+        if dirs == {"N", "S"}:
+            return "|"
         if len(dirs) >= 2:
             return "+"
         return "|" if dirs & {"N", "S"} else "-"
@@ -226,7 +254,7 @@ def cell_mark(
     start: Point,
     goal: Point,
     head: str,
-    route_cells: set[Point] | None = None,
+    shapes: dict[Point, set[str]] | None = None,
     ascii_mode: bool = False,
 ) -> tuple[str, str]:
     """返回 (字符, 调色板键)。
@@ -242,10 +270,10 @@ def cell_mark(
         return head, "head"
     if pos in snapshot.path:
         return ("*" if ascii_mode else "√"), "path"
-    if route_cells is None:
-        route_cells = set(snapshot.extra.get("route") or ())
-    if pos in route_cells:
-        return route_glyph(route_cells, pos, ascii_mode), "route"
+    if shapes is None:
+        shapes = route_dirs(list(snapshot.extra.get("route") or ()))
+    if pos in shapes:
+        return route_glyph(shapes[pos], ascii_mode), "route"
     if pos in snapshot.frontier:
         return ("." if ascii_mode else "·"), "frontier"
     if pos in snapshot.visited:
@@ -267,7 +295,9 @@ def render(
     if ascii_mode is None:
         ascii_mode = ascii_arrows
     head = head_char(snapshot, ascii_arrows)
-    route_cells = set(snapshot.extra.get("route") or ())
+    route = list(snapshot.extra.get("route") or ())
+    shapes = route_dirs(route)
+    links = route_links(route)
     v_link = "|" if ascii_mode else "│"
     h_link = "-" if ascii_mode else "─"
 
@@ -281,8 +311,8 @@ def render(
         for c in range(maze.cols):
             if maze.cells[r][c].walls & N:
                 seg.append(paint("---", "wall"))
-            elif r > 0 and (r, c) in route_cells and (r - 1, c) in route_cells:
-                seg.append(paint(f" {v_link} ", "route"))  # 上下两格都在分支上，补一段竖线
+            elif r > 0 and frozenset({(r, c), (r - 1, c)}) in links:
+                seg.append(paint(f" {v_link} ", "route"))  # 路径连续穿过这里，补一段竖线
             else:
                 seg.append(paint("   ", "wall"))
             seg.append(paint("+", "wall"))
@@ -293,12 +323,12 @@ def render(
             cell = maze.cells[r][c]
             if cell.walls & W:
                 body.append(paint("|", "wall"))
-            elif c > 0 and (r, c) in route_cells and (r, c - 1) in route_cells:
-                body.append(paint(h_link, "route"))  # 左右两格都在分支上，补一段横线
+            elif c > 0 and frozenset({(r, c), (r, c - 1)}) in links:
+                body.append(paint(h_link, "route"))  # 路径连续穿过这里，补一段横线
             else:
                 body.append(paint(" ", "wall"))
             ch, key = cell_mark(
-                snapshot, (r, c), start, goal, head, route_cells, ascii_mode
+                snapshot, (r, c), start, goal, head, shapes, ascii_mode
             )
             body.append(paint(_WIDE.get(ch, f" {ch} ") if key == "route" else f" {ch} ", key))
         last = maze.cells[r][maze.cols - 1]
@@ -403,6 +433,9 @@ def run_demo(
     """跑一次完整演示：生成、逐帧求解、输出总结。"""
     if not 1 <= rows <= MAX_SIZE or not 1 <= cols <= MAX_SIZE:
         print(f"尺寸需在 1–{MAX_SIZE} 之间，收到 {rows}×{cols}", file=sys.stderr)
+        return 2
+    if delay < 0:
+        print(f"--delay 不能为负数，收到 {delay}", file=sys.stderr)
         return 2
 
     use_color = color_enabled(color) and not ascii_arrows
