@@ -24,7 +24,7 @@ from mazelab.core.maze import Maze
 from mazelab.core.path import reconstruct_path
 from mazelab.core.snapshot import Point, StepSnapshot
 
-from ._common import check_endpoints, collect_path
+from ._common import check_endpoints, collect_path, retire_dead
 
 
 def manhattan(a: Point, b: Point) -> int:
@@ -50,6 +50,8 @@ def solve_steps(maze: Maze, start: Point, goal: Point) -> Iterator[StepSnapshot]
     g_score: dict[Point, int] = {start: 0}
     parent: dict[Point, Point | None] = {start: None}
     closed: set[Point] = set()
+    children: dict[Point, int] = {}     # 每个格子还有几个"没被判定为死路"的子节点
+    dead: set[Point] = set()            # 确定走不通的格子（只增不减）
     # 堆元素 (f, -g, 坐标)：f 相同时 -g 更小（即 g 更大）的先出，优先走更深的节点
     heap: list[tuple[int, int, Point]] = [(manhattan(start, goal), 0, start)]
 
@@ -59,7 +61,7 @@ def solve_steps(maze: Maze, start: Point, goal: Point) -> Iterator[StepSnapshot]
         structure=[(manhattan(start, goal), start)],
         visited=set(),
         frontier={start},
-        extra={"expanded": 0, "route": [start]},
+        extra={"expanded": 0, "route": [start], "dead": set(dead)},
     )
 
     expanded = 0
@@ -79,7 +81,13 @@ def solve_steps(maze: Maze, start: Point, goal: Point) -> Iterator[StepSnapshot]
                 visited=closed,
                 path=path,
                 done=True,
-                extra={"expanded": expanded, "distance": len(path) - 1, "f": f, "route": path},
+                extra={
+                    "expanded": expanded,
+                    "distance": len(path) - 1,
+                    "f": f,
+                    "route": path,
+                    "dead": set(dead),
+                },
             )
             return
 
@@ -88,10 +96,16 @@ def solve_steps(maze: Maze, start: Point, goal: Point) -> Iterator[StepSnapshot]
                 continue
             tentative = g_score[cur] + 1
             if tentative < g_score.get(nb, 1 << 30):
+                old = parent.get(nb)
+                if old is not None and old != cur:
+                    children[old] = children.get(old, 1) - 1
                 g_score[nb] = tentative
                 parent[nb] = cur
+                children[cur] = children.get(cur, 0) + 1
                 heapq.heappush(heap, (tentative + manhattan(nb, goal), -tentative, nb))
 
+        # 扩展完再判断死路：没有存活子节点就确定走不通，并沿父链向上传递
+        retire_dead(cur, parent=parent, children=children, closed=closed, dead=dead)
         yield StepSnapshot(
             action=f"扩展 {cur}（g={g_score[cur]}, f={f}）",
             current=cur,
@@ -104,6 +118,7 @@ def solve_steps(maze: Maze, start: Point, goal: Point) -> Iterator[StepSnapshot]
                 "f": f,
                 # 从起点到当前格的父指针链，供可视化区分当前分支与走过的岔路
                 "route": reconstruct_path(parent, cur),
+                "dead": set(dead),
             },
         )
 

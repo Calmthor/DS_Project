@@ -32,7 +32,8 @@ RESET = "\x1b[0m"
 # 256 色：墙面压暗，让内容跳出来；岔路用暗红，避免和亮红的终点抢眼
 PALETTE = {
     "wall": "\x1b[38;5;238m",
-    "visited": "\x1b[38;5;124m",   # 走过的岔路：暗红 x
+    "dead": "\x1b[38;5;124m",      # 确定走不通：暗红 x
+    "visited": "\x1b[38;5;240m",   # 走过但还没定论：灰 o
     "route": "\x1b[38;5;255m",     # 当前分支：白线
     "frontier": "\x1b[38;5;250m",  # 候选：白点
     "path": "\x1b[1;38;5;46m",     # 最终路径：亮绿 √
@@ -274,10 +275,12 @@ def cell_mark(
         shapes = route_dirs(list(snapshot.extra.get("route") or ()))
     if pos in shapes:
         return route_glyph(shapes[pos], ascii_mode), "route"
+    if pos in (snapshot.extra.get("dead") or ()):
+        return "x", "dead"  # 只有整棵子树都探完、确定走不通的格子才标红
     if pos in snapshot.frontier:
         return ("." if ascii_mode else "·"), "frontier"
     if pos in snapshot.visited:
-        return "x", "visited"
+        return ("." if ascii_mode else "o"), "visited"
     return " ", ""
 
 
@@ -352,7 +355,8 @@ def legend(color: bool = True, ascii_arrows: bool = False) -> str:
         (path, "path", "最终路径"),
         (line, "route", "当前分支"),
         (dot, "frontier", "候选"),
-        ("x", "visited", "走过的岔路"),
+        ("x", "dead", "确定死路"),
+        ("o", "visited", "走过未定"),
     ]
     pieces = []
     for ch, key, label in parts:

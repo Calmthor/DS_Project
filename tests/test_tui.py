@@ -103,11 +103,13 @@ def test_dead_end_and_frontier_symbols() -> None:
     snapshot = StepSnapshot(
         action="",
         current=(0, 0),
-        visited={(1, 1)},
+        visited={(1, 1), (2, 3)},
         frontier={(2, 2)},
-        extra={"route": [(0, 0)]},
+        extra={"route": [(0, 0)], "dead": {(2, 3)}},
     )
-    assert cell_mark(snapshot, (1, 1), (0, 0), (3, 3), "→") == ("x", "visited")
+    # 只有确定走不通的才标红 x；其余走过但未定论的用灰 o
+    assert cell_mark(snapshot, (2, 3), (0, 0), (3, 3), "→") == ("x", "dead")
+    assert cell_mark(snapshot, (1, 1), (0, 0), (3, 3), "→") == ("o", "visited")
     assert cell_mark(snapshot, (2, 2), (0, 0), (3, 3), "→") == ("·", "frontier")
 
 
@@ -127,10 +129,10 @@ def test_route_beats_visited_but_not_current() -> None:
     )
     start, goal = (0, 0), (3, 3)
 
-    # (0,1) 左右都是分支 → 横线；当前格优先显示箭头；纯已访问格显示 x
+    # (0,1) 左右都是分支 → 横线；当前格优先显示箭头；纯已访问格显示灰点
     assert cell_mark(snapshot, (0, 1), start, goal, "→") == ("─", "route")
     assert cell_mark(snapshot, (0, 2), start, goal, "→") == ("→", "head")
-    assert cell_mark(snapshot, (1, 1), start, goal, "→") == ("x", "visited")
+    assert cell_mark(snapshot, (1, 1), start, goal, "→") == ("o", "visited")
 
 
 def test_path_beats_route() -> None:

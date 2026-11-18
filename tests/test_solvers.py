@@ -137,6 +137,50 @@ def test_manhattan_heuristic() -> None:
     assert manhattan((4, 4), (4, 4)) == 0
 
 
+def test_dead_cells_never_come_back_to_life() -> None:
+    """核心不变式：一旦某格被判定为死路，之后就不会再出现在当前分支上。
+
+    这正是"红 x 不会又变回白线"的保证。当前格本身除外——它可能就是刚探完的死路。
+    """
+    maze = generate("dfs", 8, 8, seed=3)
+    for name in ("bfs", "astar"):
+        dead_seen: set = set()
+        for snapshot in SOLVERS[name].solve_steps(maze, (0, 0), (7, 7)):
+            route = set(snapshot.extra.get("route") or ())
+            revived = (dead_seen - {snapshot.current}) & route
+            assert not revived, f"{name} 里出现死路复活：{sorted(revived)}"
+            dead_seen |= set(snapshot.extra.get("dead") or ())
+
+
+def test_dead_cells_are_subset_of_visited() -> None:
+    maze = generate("dfs", 8, 8, seed=3)
+    for name in ("bfs", "astar"):
+        for snapshot in SOLVERS[name].solve_steps(maze, (0, 0), (7, 7)):
+            dead = set(snapshot.extra.get("dead") or ())
+            assert dead <= snapshot.visited
+
+
+def test_dead_cells_only_grow() -> None:
+    """一旦判定走不通就不再复活——否则画面上会出现"红 x 又变回白线"。"""
+    maze = generate("dfs", 9, 9, seed=5)
+    for name in ("bfs", "astar"):
+        previous: set = set()
+        for snapshot in SOLVERS[name].solve_steps(maze, (0, 0), (8, 8)):
+            current = set(snapshot.extra.get("dead") or ())
+            assert previous <= current
+            previous = current
+
+
+def test_dead_cells_are_actually_found() -> None:
+    """迷宫里必然存在探到底的死路，否则这套判定等于没生效。"""
+    maze = generate("dfs", 8, 8, seed=3)
+    for name in ("bfs", "astar"):
+        seen: set = set()
+        for snapshot in SOLVERS[name].solve_steps(maze, (0, 0), (7, 7)):
+            seen |= set(snapshot.extra.get("dead") or ())
+        assert seen, f"{name} 没有标记出任何确定死路"
+
+
 def test_unknown_solver_raises() -> None:
     with pytest.raises(ValueError, match="未知的求解算法"):
         solve("dfs", Maze(2, 2), (0, 0), (1, 1))

@@ -32,3 +32,30 @@ def collect_path(step_fn: StepFn, maze: Maze, start: Point, goal: Point) -> list
         if snapshot.done:
             path = snapshot.path or None
     return path
+
+
+def retire_dead(
+    cell: Point,
+    *,
+    parent: dict[Point, Point | None],
+    children: dict[Point, int],
+    closed: set[Point],
+    dead: set[Point],
+) -> None:
+    """自下而上把"已关闭且没有存活子节点"的格子标记成死路。
+
+    判定条件只有两条：该格已经扩展过（在 ``closed`` 里）、并且它的所有子节点
+    也都已经是死路。满足就说明这整棵子树都探完了、目标不在里面，可以确定走不通。
+
+    一旦标记就不再撤销——这正是"明确确定是死胡同"的含义，
+    也就不会再出现"刚标红又变回白线"的情况。
+    """
+    cur: Point | None = cell
+    while cur is not None and cur not in dead:
+        if children.get(cur, 0) > 0 or cur not in closed:
+            return
+        dead.add(cur)
+        p = parent.get(cur)
+        if p is not None:
+            children[p] = children.get(p, 1) - 1
+        cur = p
