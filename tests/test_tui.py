@@ -251,34 +251,32 @@ def test_ask_int_retries_on_bad_input(monkeypatch) -> None:
     assert ask_int("行数", 10, 1, 40) == 12
 
 
-def test_ask_int_empty_uses_default(monkeypatch) -> None:
+def test_ask_int_empty_uses_default_and_says_so(monkeypatch, capsys) -> None:
     monkeypatch.setattr("builtins.input", lambda _prompt="": "   ")
     assert ask_int("行数", 10, 1, 40) == 10
+    assert "使用默认值 10" in capsys.readouterr().out
 
 
-def test_ask_int_quotes_the_bad_input(monkeypatch, capsys) -> None:
-    """报错时要回显收到了什么，否则用户不知道自己输错了什么。"""
-    answers = iter(["abc", "5"])
+def test_ask_int_rejects_bad_input(monkeypatch, capsys) -> None:
+    answers = iter(["abc", "999", "5"])
     monkeypatch.setattr("builtins.input", lambda _prompt="": next(answers))
     assert ask_int("行数", 10, 1, 40) == 5
-    assert '收到 "abc"' in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert out.count("输入不合法，请输入 1–40 的数字") == 2  # 非数字一次、超范围一次
 
 
-def test_ask_int_hints_when_whole_command_pasted(monkeypatch, capsys) -> None:
-    """整行命令粘进来时，除了拒绝还要给出针对性提示。"""
+def test_ask_int_rejects_pasted_command(monkeypatch, capsys) -> None:
     answers = iter(["python -m mazelab play --rows 10", "6"])
     monkeypatch.setattr("builtins.input", lambda _prompt="": next(answers))
     assert ask_int("行数", 10, 1, 40) == 6
-    out = capsys.readouterr().out
-    assert "别把整行命令粘贴进来" in out
-    assert "python -m" in out  # 回显了输入（过长会被截断）
+    assert "输入不合法" in capsys.readouterr().out
 
 
-def test_ask_choice_quotes_the_bad_input(monkeypatch, capsys) -> None:
+def test_ask_choice_rejects_bad_input(monkeypatch, capsys) -> None:
     answers = iter(["foo", "bfs"])
     monkeypatch.setattr("builtins.input", lambda _prompt="": next(answers))
     assert ask_choice("求解算法", ["bfs", "astar"], "bfs") == "bfs"
-    assert '收到 "foo"' in capsys.readouterr().out
+    assert "输入不合法，可选：bfs/astar" in capsys.readouterr().out
 
 
 def test_ask_choice_retries_on_bad_input(monkeypatch) -> None:

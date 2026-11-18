@@ -389,43 +389,35 @@ class _Screen:
 # ---------- 交互 ----------
 
 
-def _brief(text: str, limit: int = 24) -> str:
-    """把用户输入截短一点再回显，避免一整行命令刷屏。"""
-    text = text.strip()
-    return text if len(text) <= limit else text[:limit] + "…"
-
-
 def ask_int(prompt: str, default: int, lo: int, hi: int) -> int:
-    """读一个整数，空输入用默认值，非法输入重新问。"""
+    """读一个整数：空输入用默认值（并明示），非法输入提示后重新询问。"""
     while True:
         raw = input(f"{prompt} [{default}]: ").strip()
         if not raw:
+            print(f"  使用默认值 {default}")
             return default
         try:
             value = int(raw)
         except ValueError:
-            print(f'  请输入 {lo}–{hi} 之间的整数（收到 "{_brief(raw)}"）')
-            if " " in raw:
-                print("  提示：这里只需要一个数字，别把整行命令粘贴进来")
+            print(f"  输入不合法，请输入 {lo}–{hi} 的数字")
             continue
         if not lo <= value <= hi:
-            print(f'  超出范围，请输入 {lo}–{hi}（收到 "{_brief(raw)}"）')
+            print(f"  输入不合法，请输入 {lo}–{hi} 的数字")
             continue
         return value
 
 
 def ask_choice(prompt: str, options: list[str], default: str) -> str:
-    """从固定选项里选一个，空输入用默认值。"""
+    """从固定选项里选一个：空输入用默认值（并明示），非法输入提示后重新询问。"""
     joined = "/".join(options)
     while True:
         raw = input(f"{prompt} ({joined}) [{default}]: ").strip().lower()
         if not raw:
+            print(f"  使用默认值 {default}")
             return default
         if raw in options:
             return raw
-        print(f'  可选：{joined}（收到 "{_brief(raw)}"）')
-        if " " in raw:
-            print("  提示：这里只需要填一个算法名，别把整行命令粘贴进来")
+        print(f"  输入不合法，可选：{joined}")
 
 
 def run_demo(
