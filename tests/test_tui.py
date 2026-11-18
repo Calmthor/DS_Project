@@ -251,10 +251,25 @@ def test_ask_int_retries_on_bad_input(monkeypatch) -> None:
     assert ask_int("行数", 10, 1, 40) == 12
 
 
-def test_ask_int_empty_uses_default_and_says_so(monkeypatch, capsys) -> None:
+def test_ask_int_empty_uses_default(monkeypatch) -> None:
     monkeypatch.setattr("builtins.input", lambda _prompt="": "   ")
     assert ask_int("行数", 10, 1, 40) == 10
-    assert "使用默认值 10" in capsys.readouterr().out
+
+
+def test_prompt_tells_user_enter_means_default(monkeypatch) -> None:
+    """规则要写在提示语里，而不是用户按了回车之后才告诉。"""
+    seen: dict[str, str] = {}
+
+    def fake(prompt: str) -> str:
+        seen["prompt"] = prompt
+        return ""
+
+    monkeypatch.setattr("builtins.input", fake)
+    ask_int("行数", 10, 1, 40)
+    assert "回车=默认 10" in seen["prompt"]
+
+    ask_choice("生成算法", ["dfs", "prim"], "dfs")
+    assert "回车=默认 dfs" in seen["prompt"]
 
 
 def test_ask_int_rejects_bad_input(monkeypatch, capsys) -> None:

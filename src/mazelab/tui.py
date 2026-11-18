@@ -390,11 +390,10 @@ class _Screen:
 
 
 def ask_int(prompt: str, default: int, lo: int, hi: int) -> int:
-    """读一个整数：空输入用默认值（并明示），非法输入提示后重新询问。"""
+    """读一个整数：提示里写明回车即用默认值，其余不合法的输入一律要求重输。"""
     while True:
-        raw = input(f"{prompt} [{default}]: ").strip()
+        raw = input(f"{prompt}（回车=默认 {default}）: ").strip()
         if not raw:
-            print(f"  使用默认值 {default}")
             return default
         try:
             value = int(raw)
@@ -408,12 +407,11 @@ def ask_int(prompt: str, default: int, lo: int, hi: int) -> int:
 
 
 def ask_choice(prompt: str, options: list[str], default: str) -> str:
-    """从固定选项里选一个：空输入用默认值（并明示），非法输入提示后重新询问。"""
+    """从固定选项里选一个：提示里写明回车即用默认值，非法输入要求重输。"""
     joined = "/".join(options)
     while True:
-        raw = input(f"{prompt} ({joined}) [{default}]: ").strip().lower()
+        raw = input(f"{prompt} ({joined})（回车=默认 {default}）: ").strip().lower()
         if not raw:
-            print(f"  使用默认值 {default}")
             return default
         if raw in options:
             return raw
