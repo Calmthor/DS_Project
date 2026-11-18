@@ -256,6 +256,31 @@ def test_ask_int_empty_uses_default(monkeypatch) -> None:
     assert ask_int("行数", 10, 1, 40) == 10
 
 
+def test_ask_int_quotes_the_bad_input(monkeypatch, capsys) -> None:
+    """报错时要回显收到了什么，否则用户不知道自己输错了什么。"""
+    answers = iter(["abc", "5"])
+    monkeypatch.setattr("builtins.input", lambda _prompt="": next(answers))
+    assert ask_int("行数", 10, 1, 40) == 5
+    assert '收到 "abc"' in capsys.readouterr().out
+
+
+def test_ask_int_hints_when_whole_command_pasted(monkeypatch, capsys) -> None:
+    """整行命令粘进来时，除了拒绝还要给出针对性提示。"""
+    answers = iter(["python -m mazelab play --rows 10", "6"])
+    monkeypatch.setattr("builtins.input", lambda _prompt="": next(answers))
+    assert ask_int("行数", 10, 1, 40) == 6
+    out = capsys.readouterr().out
+    assert "别把整行命令粘贴进来" in out
+    assert "python -m" in out  # 回显了输入（过长会被截断）
+
+
+def test_ask_choice_quotes_the_bad_input(monkeypatch, capsys) -> None:
+    answers = iter(["foo", "bfs"])
+    monkeypatch.setattr("builtins.input", lambda _prompt="": next(answers))
+    assert ask_choice("求解算法", ["bfs", "astar"], "bfs") == "bfs"
+    assert '收到 "foo"' in capsys.readouterr().out
+
+
 def test_ask_choice_retries_on_bad_input(monkeypatch) -> None:
     answers = iter(["xxx", "prim"])
     monkeypatch.setattr("builtins.input", lambda _prompt="": next(answers))
