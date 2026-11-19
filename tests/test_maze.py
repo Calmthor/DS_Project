@@ -58,6 +58,17 @@ def test_adjacent_ignores_walls() -> None:
     assert set(maze.adjacent((0, 0))) == {(0, 1), (1, 0)}
 
 
+def test_one_sided_passage_is_not_passable() -> None:
+    """只有一侧开墙（数据不自洽）时按"不通"处理，不能凭空多出一条通道。"""
+    maze = Maze(1, 2)
+    maze.cells[0][0].walls &= ~E  # 左格单方面说"能往右走"，右格仍认为左边是墙
+
+    assert not maze.is_open((0, 0), (0, 1))
+    assert maze.neighbors((0, 0)) == []
+    assert maze.neighbors((0, 1)) == []
+    assert not maze.is_connected((0, 0), (0, 1))
+
+
 def test_connectivity_follows_carved_passages() -> None:
     maze = Maze(1, 3)
     maze.carve((0, 0), (0, 1))

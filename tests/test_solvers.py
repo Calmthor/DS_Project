@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from mazelab.core.maze import Maze
+from mazelab.core.maze import E, Maze
 from mazelab.core.path import check_path
 from mazelab.generators import GENERATORS, generate
 from mazelab.solvers import SOLVERS, solve
@@ -135,6 +135,14 @@ def test_manhattan_heuristic() -> None:
 
     assert manhattan((0, 0), (2, 3)) == 5
     assert manhattan((4, 4), (4, 4)) == 0
+
+
+def test_check_path_rejects_one_sided_wall() -> None:
+    """路径校验必须和搜索用同一条判据，否则不对称数据会"两边都说合法"。"""
+    maze = Maze(1, 2)
+    maze.cells[0][0].walls &= ~E  # 左格说通，右格说墙
+    problems = check_path(maze, (0, 0), (0, 1), [(0, 0), (0, 1)])
+    assert problems, "一侧开墙的路径不应被判为合法"
 
 
 def test_dead_cells_never_come_back_to_life() -> None:

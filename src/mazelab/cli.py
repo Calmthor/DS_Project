@@ -15,7 +15,7 @@ from pathlib import Path
 
 from mazelab import __version__
 from mazelab.core.maze import Maze, Point
-from mazelab.core.validate import validate
+from mazelab.core.validate import validate, validate_structure
 from mazelab.generators import GENERATORS, NAMES as GENERATOR_NAMES
 from mazelab.solvers import NAMES as SOLVER_NAMES, SOLVERS
 from mazelab.tui import DEFAULT_DELAY, interactive
@@ -72,6 +72,14 @@ def cmd_generate(args: argparse.Namespace) -> int:
 
 def cmd_solve(args: argparse.Namespace) -> int:
     maze = _load(args.input)
+    # 求解前必须先确认迷宫结构自洽：墙位不对称等坏数据会让"能走"的判断自相矛盾，
+    # 解出来的路径看着正常，实际可能穿墙。连通性不在这里查——没通路的迷宫应当报"无解"。
+    report = validate_structure(maze)
+    if not report.ok:
+        print("输入的迷宫结构不自洽，无法保证路径有效：", file=sys.stderr)
+        print(report.render(), file=sys.stderr)
+        return 1
+
     start = args.start or (0, 0)
     goal = args.goal or (maze.rows - 1, maze.cols - 1)
     if not maze.in_bounds(start) or not maze.in_bounds(goal):

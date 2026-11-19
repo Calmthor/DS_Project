@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from mazelab.core.maze import E, N, Maze
-from mazelab.core.validate import validate
+from mazelab.core.validate import validate, validate_structure
 from mazelab.generators import GENERATORS, generate
 
 
@@ -44,6 +44,17 @@ def test_detects_cycle() -> None:
         maze.carve(a, b)
     assert "无环" in failing_names(maze)
     assert "全连通" not in failing_names(maze)
+
+
+def test_validate_structure_ignores_connectivity() -> None:
+    """结构检查只看自洽性：没通路的迷宫结构上是合法的，应当报"无解"而不是"非法"。"""
+    maze = Maze(2, 2)  # 一格都没打通
+    assert validate_structure(maze).ok
+    assert not validate(maze).ok
+
+    broken = Maze(2, 2)
+    broken.cells[0][0].walls &= ~E  # 单侧开墙 → 结构不自洽
+    assert not validate_structure(broken).ok
 
 
 def test_report_renders_every_check() -> None:

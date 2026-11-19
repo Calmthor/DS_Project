@@ -98,8 +98,13 @@ class Maze:
         raise ValueError(f"{a} 与 {b} 不相邻，不能打通")
 
     def is_open(self, a: Point, b: Point) -> bool:
-        """a、b 之间是否已经打通（两格必须相邻）。"""
-        return not self.cell(a).walls & self.direction(a, b)
+        """a、b 之间是否可以通行（两格必须相邻）。
+
+        必须两侧都认为没墙才算通。墙位不对称时（例如 JSON 被手工改坏），
+        只信其中一侧会让 ``neighbors()`` 和路径校验得出相反的结论。
+        """
+        d = self.direction(a, b)
+        return not (self.cell(a).walls & d or self.cell(b).walls & OPPOSITE[d])
 
     # ---------- 修改 ----------
 
@@ -115,15 +120,19 @@ class Maze:
     # ---------- 图查询 ----------
 
     def neighbors(self, pos: Point) -> list[Point]:
-        """返回从 pos **能走到**的相邻格（边界内且中间无墙），顺序为 N/E/S/W。"""
+        """返回从 pos **能走到**的相邻格（边界内且两侧都无墙），顺序为 N/E/S/W。"""
         cell = self.cell(pos)
         result: list[Point] = []
         for d, (dr, dc) in DIRS.items():
             if cell.walls & d:
                 continue
             nr, nc = cell.row + dr, cell.col + dc
-            if 0 <= nr < self.rows and 0 <= nc < self.cols:
-                result.append((nr, nc))
+            if not (0 <= nr < self.rows and 0 <= nc < self.cols):
+                continue
+            # 另一侧也必须有开口，否则这份数据本身是矛盾的，按"不通"处理
+            if self.cells[nr][nc].walls & OPPOSITE[d]:
+                continue
+            result.append((nr, nc))
         return result
 
     def passages(self) -> list[tuple[Point, Point]]:

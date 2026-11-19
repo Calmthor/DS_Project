@@ -7,7 +7,7 @@ import json
 import pytest
 
 from mazelab.cli import main
-from mazelab.core.maze import Maze
+from mazelab.core.maze import W, Maze
 
 
 def test_generate_writes_json_that_validate_accepts(tmp_path, capsys) -> None:
@@ -51,6 +51,20 @@ def test_solve_ascii_overlay(tmp_path, capsys) -> None:
     assert main(["solve", "--input", str(maze_file)]) == 0
     out = capsys.readouterr().out
     assert "S" in out and "G" in out and "最短路径 2 步" in out
+
+
+def test_solve_rejects_inconsistent_maze(tmp_path, capsys) -> None:
+    """墙位不对称的坏数据必须被拒，而不是解出一条穿墙的"正常"路径。"""
+    maze = Maze(2, 2)
+    maze.carve((0, 0), (0, 1))
+    maze.cells[0][1].walls |= W  # 制造不对称：左边说通，右边说墙
+    target = tmp_path / "bad.json"
+    maze.save(target)
+
+    assert main(["solve", "--input", str(target)]) == 1
+    err = capsys.readouterr().err
+    assert "结构不自洽" in err
+    assert "墙位对称" in err
 
 
 def test_unsolvable_maze_exits_with_code_2(tmp_path, capsys) -> None:

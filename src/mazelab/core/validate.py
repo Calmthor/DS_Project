@@ -94,6 +94,16 @@ def _check_acyclic(maze: Maze) -> Check:
     return Check("无环", passages == expected, detail)
 
 
+def validate_structure(maze: Maze) -> Report:
+    """只查结构是否自洽：边界封闭 + 墙位对称。
+
+    求解只需要"数据自洽"，不要求是完美迷宫——连通性和无环性是迷宫的质量指标，
+    由 :func:`validate` 负责。拆开是为了让 ``solve`` 拒绝坏数据、但仍能对
+    "结构合法但没有解"的迷宫给出"无解"，而不是笼统地判为非法。
+    """
+    return Report(checks=[_check_border_closed(maze), _check_wall_symmetry(maze)])
+
+
 def validate(maze: Maze) -> Report:
     """跑完全部检查并返回报告。"""
     return Report(

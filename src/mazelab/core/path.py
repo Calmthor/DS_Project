@@ -38,10 +38,12 @@ def check_path(maze: Maze, start: Point, goal: Point, path: list[Point]) -> list
             problems.append(f"路径在 {cur} 处原地踏步")
             continue
         try:
-            d = maze.direction(prev, cur)
+            maze.direction(prev, cur)
         except ValueError:
             problems.append(f"{prev} 与 {cur} 不相邻")
             continue
-        if maze.cell(prev).walls & d:
-            problems.append(f"{prev} 与 {cur} 之间有墙，却出现在路径中")
+        # 复用 neighbors() 这一条判据：两侧都无墙才算连通，
+        # 避免"搜索看一侧、校验看另一侧"时互相打脸
+        if cur not in maze.neighbors(prev):
+            problems.append(f"{prev} 与 {cur} 之间不通（有墙或两侧墙位不一致）")
     return problems

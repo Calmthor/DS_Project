@@ -32,7 +32,7 @@
 
 **核心表示：** 每个单元格用四面墙位掩码（N=1, E=2, S=4, W=8），打通相邻两格时同时清除双方对应墙。这条"墙必须成对出现"的不变式由 `Maze.carve()` 唯一维护，`core/validate.py` 会独立复查；一旦有人手工改墙改错，`validate` 立刻报"墙位对称"失败。
 
-**逐步可视化：** 生成器和求解器都以 Python 生成器 yield `StepSnapshot`，每个快照包含当前动作、当前格、栈/队列/堆内容、已访问集合、候选集合、路径与 `extra` 补充信息。因为生成器是惰性的，取第一帧不需要先算完整个迷宫；调用方边取帧边渲染，`extra["carve"]` 记录本帧新打通的边，重放这些边就能复原任意时刻的迷宫，不必每帧存一份完整网格。
+**逐步可视化：** 生成器和求解器都以 Python 生成器 yield `StepSnapshot`，每个快照包含当前动作、当前格、栈/队列内容、已访问集合、候选集合、路径与 `extra` 补充信息（Prim 的堆只在 `extra` 里给出规模和候选，不逐帧复制堆内容）。因为生成器是惰性的，取第一帧不需要先算完整个迷宫；调用方边取帧边渲染，`extra["carve"]` 记录本帧新打通的边，重放这些边就能复原任意时刻的迷宫，不必每帧存一份完整网格。
 
 **复杂度：** 设格数 n = R×C、通道边数 m = n−1。
 
@@ -168,15 +168,16 @@ for step in GENERATORS["kruskal"].generate_steps(4, 4, random.Random(1)):
 
 ## 5. 测试与结果
 
-`pytest` 共 115 个用例全部通过（0.5 秒内），覆盖：
+`pytest` 共 157 个用例全部通过（0.5 秒内），覆盖：
 
 | 测试文件                 | 覆盖内容                                                       |
 | ------------------------ | -------------------------------------------------------------- |
-| `test_maze.py`           | 墙位对称、打通幂等、越界与不相邻、连通性、序列化异常、1×1 边界 |
+| `test_maze.py`           | 墙位对称、两侧一致才可通行、打通幂等、越界与不相邻、序列化异常 |
 | `test_generators.py`     | 三种算法 × 6 种尺寸均为完美迷宫、seed 复现、快照重放一致       |
-| `test_solvers.py`        | 路径合法、BFS 与 A* 路径等长、无解、起终点重合、越界           |
+| `test_solvers.py`        | 路径合法、BFS 与 A* 路径等长、无解、起终点重合、越界、死路判定 |
 | `test_validate.py`       | 四类缺陷（漏边、缺口、断连、成环）都能被检出                   |
-| `test_cli.py`            | generate→solve→validate 全链路、错误输入退出码                 |
+| `test_cli.py`            | generate→solve→validate 全链路、坏数据拒绝、错误输入退出码     |
+| `test_tui.py`            | 帧排版、箭头方向、分支连线、空格暂停、输入重输                 |
 | `test_disjoint_set.py`   | 并查集合并、路径压缩、分量计数                                 |
 
 **关键结论（均为实跑结果，不是估计）：**
@@ -197,12 +198,12 @@ for step in GENERATORS["kruskal"].generate_steps(4, 4, random.Random(1)):
 原因：`generate()` 原先要消费逐帧快照，而每帧复制 `visited`/`frontier` 是 O(n)，全部走完就是 O(n²)；
 现在 `generate()` 以 `capture=False` 调用，不再构造快照，回到 O(n)/O(n log n)。
 
-**边界与异常：** 1×1（无通道）、单行/单列、起终点重合、目标不可达、越界坐标、损坏 JSON、非整数墙值均有对应用例；`mazelab solve` 对无解迷宫返回退出码 2，`validate` 失败返回 1。
+**边界与异常：** 1×1（无通道）、单行/单列、起终点重合、目标不可达、越界坐标、损坏 JSON、非整数墙值均有对应用例；`mazelab solve` 对无解迷宫返回退出码 2，对结构不自洽的输入（如墙位不对称）返回 1 并列出失败项，而不是解出一条穿墙的路径；`validate` 失败返回 1。
 
 **自己复现这些结论**（不需要读测试代码，三条命令即可）：
 
 ```powershell
-python -m pytest                                    # 期望 115 passed
+python -m pytest                                    # 期望 157 passed
 
 # 同 seed 必须完全一致：Compare-Object 无输出即为一致
 $a = python -m mazelab generate --rows 6 --cols 6 --seed 42
@@ -234,7 +235,7 @@ python -m mazelab validate --input tmp.json
 参与环节：方案对比与可行性分析、部分代码编写（core/generators/solvers/cli）、
         测试用例编写、文档中的实测数据采集
 本人完成的设计、修改与判断：方案设计，算法思路设计，部分代码编写与修改，项目整体设计与分析，文档编写
-验证方法及结果：pytest 115 个用例全部通过；三种生成算法在 6 种尺寸下均通过
+验证方法及结果：pytest 157 个用例全部通过；三种生成算法在 6 种尺寸下均通过
           连通性/无环性/墙位对称/边界封闭四项自检；BFS 与 A* 路径长度交叉验证一致
 代表性协作案例或记录位置：见 docs/DEVLOG.md（记录了按里程碑的改动与验证过程）
 引用与复用的外部资源：除 Python 标准库外未引入运行时依赖；测试依赖 pytest；
@@ -252,11 +253,12 @@ DS_Project/
 │   │   ├── disjoint_set.py    # 并查集
 │   │   ├── validate.py        # 四项自检
 │   │   └── path.py            # 路径回溯与合法性检查
-│   ├── generators/            # dfs.py / prim.py / kruskal.py + 算法注册表
-│   ├── solvers/               # bfs.py / astar.py + 算法注册表
+│   ├── generators/            # dfs.py / prim.py / kruskal.py + 注册表 + _common.py
+│   ├── solvers/               # bfs.py / astar.py + 注册表 + _common.py
+│   ├── tui.py                 # 交互式演示（配色、逐帧、空格暂停）
 │   ├── cli.py                 # 命令行入口
 │   └── __main__.py            # python -m mazelab
-├── tests/                     # 6 个测试文件，115 个用例
+├── tests/                     # 7 个测试文件，157 个用例
 ├── examples/                  # 示例迷宫与求解结果
 ├── docs/                      # DEVLOG 等说明文档
 ├── README.md
