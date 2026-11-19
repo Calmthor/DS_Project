@@ -67,6 +67,30 @@ def test_solve_rejects_inconsistent_maze(tmp_path, capsys) -> None:
     assert "墙位对称" in err
 
 
+def test_algorithm_name_is_case_insensitive(tmp_path, capsys) -> None:
+    """命令行和交互模式对大小写的态度要一致，不能一个接受一个报错。"""
+    maze_file = tmp_path / "m.json"
+    main(["generate", "--rows", "4", "--cols", "4", "--seed", "1",
+          "--format", "json", "--output", str(maze_file)])
+    capsys.readouterr()
+
+    assert main(["solve", "--input", str(maze_file), "--algorithm", "BFS"]) == 0
+    assert "最短路径" in capsys.readouterr().out
+
+
+def test_module_entrypoint_runs() -> None:
+    import subprocess
+    import sys
+
+    result = subprocess.run(
+        [sys.executable, "-m", "mazelab", "--version"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    assert "mazelab" in result.stdout
+
+
 def test_unsolvable_maze_exits_with_code_2(tmp_path, capsys) -> None:
     maze = Maze(2, 2)  # 一格都不通
     maze_file = tmp_path / "closed.json"

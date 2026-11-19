@@ -160,6 +160,26 @@ def test_dead_cells_never_come_back_to_life() -> None:
             dead_seen |= set(snapshot.extra.get("dead") or ())
 
 
+def test_dead_cells_never_overlap_the_final_path() -> None:
+    """死路判定若出错（把正确答案上的格子标死），这条会立刻失败。"""
+    maze = generate("dfs", 9, 9, seed=5)
+    for name in ("bfs", "astar"):
+        dead_seen: set = set()
+        for snapshot in SOLVERS[name].solve_steps(maze, (0, 0), (8, 8)):
+            dead_seen |= set(snapshot.extra.get("dead") or ())
+        path = SOLVERS[name].solve(maze, (0, 0), (8, 8))
+        assert path, f"{name} 应当有解"
+        assert dead_seen.isdisjoint(path)
+
+
+def test_inconsistent_maze_has_no_path() -> None:
+    """墙位不一致时按"不通"处理——数据层修好后，搜索不可能穿墙。"""
+    maze = Maze(1, 2)
+    maze.cells[0][0].walls &= ~E  # 左格说通，右格说墙
+    for name in ("bfs", "astar"):
+        assert SOLVERS[name].solve(maze, (0, 0), (0, 1)) is None
+
+
 def test_dead_cells_are_subset_of_visited() -> None:
     maze = generate("dfs", 8, 8, seed=3)
     for name in ("bfs", "astar"):

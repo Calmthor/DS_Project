@@ -16,9 +16,11 @@ from mazelab.generators import generate
 from mazelab.solvers import SOLVERS
 from mazelab.tui import (
     _Keyboard,
+    _Screen,
     ask_choice,
     ask_int,
     cell_mark,
+    color_enabled,
     head_char,
     render,
     route_dirs,
@@ -59,6 +61,43 @@ def test_render_matches_static_layout() -> None:
     assert len(text.splitlines()) == len(static.splitlines())
     assert all(len(line) == 4 * 7 + 1 for line in text.splitlines())
     assert text.splitlines()[0] == static.splitlines()[0]
+
+
+def _ascii_marks(maze, snapshot, start, goal) -> dict:
+    """按同一套规则算出每格的标记，喂给 to_ascii 作为比对基准。"""
+    head = head_char(snapshot, ascii_arrows=True)
+    shapes = route_dirs(list(snapshot.extra.get("route") or ()))
+    return {
+        (r, c): cell_mark(snapshot, (r, c), start, goal, head, shapes, True)[0]
+        for r in range(maze.rows)
+        for c in range(maze.cols)
+    }
+
+
+def test_render_agrees_with_to_ascii_cell_by_cell() -> None:
+    """两个渲染器的布局必须逐格一致，避免"只比首行"时中间悄悄分叉。
+
+    唯一允许的差异是分支连接符：它会把边框上的 "   " 替换成 " | "。
+    """
+    maze = generate("dfs", 5, 7, seed=1)
+    start, goal = (0, 0), (4, 6)
+    steps = list(SOLVERS["bfs"].solve_steps(maze, start, goal))
+
+    for snapshot in (steps[0], steps[len(steps) // 2], steps[-1]):
+        expected = maze.to_ascii(marks=_ascii_marks(maze, snapshot, start, goal))
+        actual = strip_ansi(render(maze, snapshot, start, goal, color=False, ascii_arrows=True))
+        exp_lines = expected.splitlines()
+        act_lines = actual.splitlines()
+        assert len(act_lines) == len(exp_lines)
+
+        for r in range(maze.rows):
+            body_exp, body_act = exp_lines[2 * r + 1], act_lines[2 * r + 1]
+            for c in range(maze.cols):
+                lo = 4 * c + 1
+                assert body_act[lo : lo + 3] == body_exp[lo : lo + 3], f"第 {r} 行第 {c} 格不一致"
+
+            border_exp, border_act = exp_lines[2 * r], act_lines[2 * r]
+            assert border_act.replace("|", " ") == border_exp.replace("|", " ")
 
 
 def test_color_adds_ansi_without_breaking_width() -> None:
@@ -231,6 +270,28 @@ def test_space_pauses_and_resumes(capsys) -> None:
 def test_keyboard_disabled_when_stdin_is_not_tty() -> None:
     assert _Keyboard().enabled is False
     assert _Keyboard().read(0) is None
+
+
+def test_color_disabled_when_stdout_is_not_tty() -> None:
+    """pytest 下 stdout 不是终端，颜色必须自动关闭，否则输出里会混进转义序列。"""
+    assert color_enabled(False) is False
+    assert color_enabled(True) is False
+
+
+def test_screen_falls_back_when_not_a_tty() -> None:
+    assert _Screen(min_lines=1).live is False
+
+
+def test_keyboard_interrupt_returns_130(monkeypatch, capsys) -> None:
+    class Boom:
+        @staticmethod
+        def solve_steps(maze, start, goal):
+            raise KeyboardInterrupt
+            yield  # pragma: no cover
+
+    monkeypatch.setitem(SOLVERS, "boom", Boom)
+    assert run_demo(3, 3, "dfs", "boom", seed=1, delay=0) == 130
+    assert "已中断" in capsys.readouterr().out
 
 
 def test_run_demo_supports_single_row_maze() -> None:

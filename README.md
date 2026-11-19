@@ -168,7 +168,7 @@ for step in GENERATORS["kruskal"].generate_steps(4, 4, random.Random(1)):
 
 ## 5. 测试与结果
 
-`pytest` 共 157 个用例全部通过（0.5 秒内），覆盖：
+`pytest` 全部用例通过（0.5 秒内），覆盖：
 
 | 测试文件                 | 覆盖内容                                                       |
 | ------------------------ | -------------------------------------------------------------- |
@@ -203,7 +203,7 @@ for step in GENERATORS["kruskal"].generate_steps(4, 4, random.Random(1)):
 **自己复现这些结论**（不需要读测试代码，三条命令即可）：
 
 ```powershell
-python -m pytest                                    # 期望 157 passed
+python -m pytest                                    # 期望全部 passed
 
 # 同 seed 必须完全一致：Compare-Object 无输出即为一致
 $a = python -m mazelab generate --rows 6 --cols 6 --seed 42
@@ -235,7 +235,7 @@ python -m mazelab validate --input tmp.json
 参与环节：方案对比与可行性分析、部分代码编写（core/generators/solvers/cli）、
         测试用例编写、文档中的实测数据采集
 本人完成的设计、修改与判断：方案设计，算法思路设计，部分代码编写与修改，项目整体设计与分析，文档编写
-验证方法及结果：pytest 157 个用例全部通过；三种生成算法在 6 种尺寸下均通过
+验证方法及结果：pytest 全部用例通过；三种生成算法在 6 种尺寸下均通过
           连通性/无环性/墙位对称/边界封闭四项自检；BFS 与 A* 路径长度交叉验证一致
 代表性协作案例或记录位置：见 docs/DEVLOG.md（记录了按里程碑的改动与验证过程）
 引用与复用的外部资源：除 Python 标准库外未引入运行时依赖；测试依赖 pytest；
@@ -258,7 +258,7 @@ DS_Project/
 │   ├── tui.py                 # 交互式演示（配色、逐帧、空格暂停）
 │   ├── cli.py                 # 命令行入口
 │   └── __main__.py            # python -m mazelab
-├── tests/                     # 7 个测试文件，157 个用例
+├── tests/                     # 7 个测试文件
 ├── examples/                  # 示例迷宫与求解结果
 ├── docs/                      # DEVLOG 等说明文档
 ├── README.md
